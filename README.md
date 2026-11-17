@@ -48,14 +48,14 @@ flutter build appbundle --release
 
 Codemagic 配置位于仓库根目录的 `codemagic.yaml`。导入 `hysgit/gxtoudo-app` 后，推送 `main` 会在个人账户每月 500 分钟的免费 macOS 构建额度内构建 Android debug APK 和 iOS Simulator 包。仓库使用公开 Git URL 导入。
 
-App Store IPA 工作流在推送 `v*` 标签时运行，需在 Codemagic 配置名称为 `gxtodo-app-store-connect` 的 API 集成和此 Bundle ID 的 App Store 签名。IPA 作为构建产物提供，不会自动上传 TestFlight。
+Codemagic 工作流当前会生成可安装的 Android debug APK 和 iOS Simulator 构建包。iPhone IPA 还需要 Apple Developer Program 账户及 App Store 签名配置，签名设置完成后可按 Codemagic 文档添加 IPA 发布工作流。Simulator 构建包不能直接安装到真机。
 
 ```sh
 flutter pub get
 flutter build ios --simulator --dart-define=GXTODO_SERVER=https://tudosrv.woslx.com
 ```
 
-在 Runner 目标设置 Apple Team 和签名，再用 `flutter build ipa --release --dart-define=GXTODO_SERVER=https://tudosrv.woslx.com` 归档。Bundle ID 为 `net.icycloud.fdtodolist`，部署目标为 iOS 15。
+要构建可安装到 iPhone 的 IPA，需先在 Runner 目标配置 Apple Team 和签名，然后在 macOS 上运行 `flutter build ipa --release --dart-define=GXTODO_SERVER=https://tudosrv.woslx.com`。Bundle ID 为 `net.icycloud.fdtodolist`，部署目标为 iOS 15。
 
 ## API 联调
 
