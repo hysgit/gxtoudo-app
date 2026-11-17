@@ -46,7 +46,7 @@ flutter build appbundle --release
 
 ## iOS 构建
 
-Codemagic 配置位于仓库根目录的 `codemagic.yaml`。导入 `hysgit/gxtoudo-app` 后，推送 `main` 会构建连接 `https://tudosrv.woslx.com` 的 Android debug APK 和 iOS Simulator 包。首次连接 GitHub 时，先检查并授权 Codemagic 所需的仓库访问范围。
+Codemagic 配置位于仓库根目录的 `codemagic.yaml`。导入 `hysgit/gxtoudo-app` 后，推送 `main` 会在个人账户每月 500 分钟的免费 macOS 构建额度内构建 Android debug APK 和 iOS Simulator 包。仓库使用公开 Git URL 导入。
 
 App Store IPA 工作流在推送 `v*` 标签时运行，需在 Codemagic 配置名称为 `gxtodo-app-store-connect` 的 API 集成和此 Bundle ID 的 App Store 签名。IPA 作为构建产物提供，不会自动上传 TestFlight。
 
