@@ -9,7 +9,10 @@ void main() {
   test('默认服务端地址使用指定的 Codemagic 部署 API', () {
     expect(defaultServer, 'https://tudosrv.woslx.com');
     expect(serverOrigin(defaultServer), 'https://tudosrv.woslx.com');
-    expect(() => serverOrigin('http://116.62.150.127:8765'), throwsFormatException);
+    expect(
+      () => serverOrigin('http://116.62.150.127:18019'),
+      throwsFormatException,
+    );
     expect(() => serverOrigin('http://example.com:18019'), throwsFormatException);
     expect(serverOrigin('https://todo.example.com'), 'https://todo.example.com');
   });
