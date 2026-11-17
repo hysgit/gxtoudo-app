@@ -61,7 +61,7 @@ workflows:
           flutter test
       - name: Compile the iOS Simulator app
         script: |
-          flutter build ios --simulator --release \
+          flutter build ios --simulator --debug \
             --build-number="$BUILD_NUMBER" \
             --dart-define=GXTODO_SERVER="$GXTODO_SERVER"
           ditto -c -k --sequesterRsrc --keepParent \
