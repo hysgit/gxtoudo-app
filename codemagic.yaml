@@ -27,7 +27,7 @@ workflows:
       - name: Build Android debug APK
         script: |
           flutter build apk --debug \
-            --build-number="$CM_BUILD_NUMBER" \
+            --build-number="$BUILD_NUMBER" \
             --dart-define=GXTODO_SERVER="$GXTODO_SERVER"
     artifacts:
       - build/app/outputs/flutter-apk/app-debug.apk
@@ -62,7 +62,7 @@ workflows:
       - name: Compile the iOS Simulator app
         script: |
           flutter build ios --simulator --release \
-            --build-number="$CM_BUILD_NUMBER" \
+            --build-number="$BUILD_NUMBER" \
             --dart-define=GXTODO_SERVER="$GXTODO_SERVER"
           ditto -c -k --sequesterRsrc --keepParent \
             build/ios/iphonesimulator/Runner.app \
