@@ -28,6 +28,11 @@
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>用于连接你配置的高效Todo同步服务器。</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<false/>
+	</dict>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

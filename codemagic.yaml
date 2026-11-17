@@ -1,0 +1,140 @@
+workflows:
+  gxtodo-android:
+    name: 高效Todo Android APK
+    max_build_duration: 60
+    instance_type: linux_x2
+    triggering:
+      events: [push, pull_request]
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+    environment:
+      flutter: 3.50.0
+      java: 17
+      vars:
+        GXTODO_SERVER: https://tudosrv.woslx.com
+    cache:
+      cache_paths:
+        - $HOME/.pub-cache
+    scripts:
+      - name: Resolve Flutter packages
+        script: flutter pub get
+      - name: Analyze and run tests
+        script: |
+          flutter analyze
+          flutter test
+      - name: Build Android debug APK
+        script: |
+          flutter build apk --debug \
+            --build-number="$CM_BUILD_NUMBER" \
+            --dart-define=GXTODO_SERVER="$GXTODO_SERVER"
+    artifacts:
+      - build/app/outputs/flutter-apk/app-debug.apk
+
+  gxtodo-ios-simulator:
+    name: 高效Todo iOS Simulator
+    max_build_duration: 90
+    instance_type: mac_mini_m2
+    triggering:
+      events: [push, pull_request]
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+    environment:
+      flutter: 3.50.0
+      xcode: latest
+      cocoapods: default
+      vars:
+        GXTODO_SERVER: https://tudosrv.woslx.com
+    cache:
+      cache_paths:
+        - $HOME/.pub-cache
+        - $HOME/Library/Caches/CocoaPods
+    scripts:
+      - name: Resolve Flutter packages
+        script: flutter pub get
+      - name: Analyze and run tests
+        script: |
+          flutter analyze
+          flutter test
+      - name: Compile the iOS Simulator app
+        script: |
+          flutter build ios --simulator --release \
+            --build-number="$CM_BUILD_NUMBER" \
+            --dart-define=GXTODO_SERVER="$GXTODO_SERVER"
+          ditto -c -k --sequesterRsrc --keepParent \
+            build/ios/iphonesimulator/Runner.app \
+            build/ios/高效Todo-iOS-Simulator.zip
+    artifacts:
+      - build/ios/高效Todo-iOS-Simulator.zip
+      - /tmp/xcodebuild_logs/**/*.log
+
+  gxtodo-ios-app-store:
+    name: 高效Todo iOS IPA
+    max_build_duration: 90
+    instance_type: mac_mini_m2
+    triggering:
+      events: [tag]
+      tag_patterns:
+        - pattern: v*
+          include: true
+    integrations:
+      app_store_connect: gxtodo-app-store-connect
+    environment:
+      flutter: 3.50.0
+      xcode: latest
+      cocoapods: default
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: net.icycloud.fdtodolist
+      vars:
+        GXTODO_SERVER: https://tudosrv.woslx.com
+    cache:
+      cache_paths:
+        - $HOME/.pub-cache
+        - $HOME/Library/Caches/CocoaPods
+    scripts:
+      - name: Require an iOS HTTPS server domain
+        script: |
+          python3 - <<'PY'
+          import ipaddress
+          import os
+          from urllib.parse import urlsplit
+
+          value = os.environ.get('GXTODO_SERVER', '').strip()
+          try:
+              address = urlsplit(value)
+              valid = address.scheme == 'https' and bool(address.hostname)
+              valid = valid and not address.username and not address.password
+              if valid:
+                  try:
+                      ipaddress.ip_address(address.hostname)
+                      valid = False
+                  except ValueError:
+                      pass
+          except (ValueError, TypeError):
+              valid = False
+          if not valid:
+              print('Set GXTODO_SERVER to an HTTPS hostname before building an iOS IPA.')
+              raise SystemExit(1)
+          print(f'Using HTTPS App API: {address.hostname}')
+          PY
+      - name: Configure App Store signing
+        script: xcode-project use-profiles
+      - name: Resolve Flutter packages
+        script: flutter pub get
+      - name: Analyze and run tests
+        script: |
+          flutter analyze
+          flutter test
+      - name: Build signed iOS IPA
+        script: |
+          flutter build ipa --release \
+            --build-number="$CM_BUILD_NUMBER" \
+            --export-options-plist=/Users/builder/export_options.plist \
+            --dart-define=GXTODO_SERVER="$GXTODO_SERVER"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/**/*.log

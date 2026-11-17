@@ -24,14 +24,14 @@ flutter analyze
 flutter test
 ```
 
-App 可离线录入个人任务和便签。登录前在「账户与服务端」填写部署好的 HTTPS 服务端地址。默认地址也可以通过编译参数 `GXTODO_SERVER` 指定。
+App 可离线录入个人任务和便签。Codemagic 构建和 App 默认连接 `https://tudosrv.woslx.com`。Android 和 iOS 均通过 HTTPS 与服务端通信。
 
 ## Android 构建
 
-使用 JDK 21、Android SDK 36、Build Tools 36.0.0 和 NDK 28.2.13676358。
+使用 Flutter 3.50.0、JDK 21、Android SDK 36、Android Gradle Plugin 9.3.1、Build Tools 36.0.0 和 NDK 28.2.13676358。
 
 ```sh
-flutter build apk --debug --dart-define=GXTODO_SERVER=https://todo.example.com
+flutter build apk --debug
 ```
 
 APK 位于 `build/app/outputs/flutter-apk/app-debug.apk`。本机联调可指定 `--dart-define=GXTODO_DEV_HTTP=true`，该开关允许使用 localhost、127.0.0.1 和 10.0.2.2 的 HTTP 地址。Android 模拟器使用 `http://10.0.2.2:8765` 访问电脑服务，USB 调试可用 `adb reverse tcp:8765 tcp:8765` 转发后访问 `http://127.0.0.1:8765`。
@@ -39,21 +39,23 @@ APK 位于 `build/app/outputs/flutter-apk/app-debug.apk`。本机联调可指定
 正式发布前设置 `GXTODO_KEYSTORE`、`GXTODO_KEYSTORE_PASSWORD`、`GXTODO_KEY_ALIAS` 和 `GXTODO_KEY_PASSWORD` 环境变量，然后执行。
 
 ```sh
-flutter build appbundle --release --dart-define=GXTODO_SERVER=https://todo.example.com
+flutter build appbundle --release
 ```
 
 包名为 `net.icycloud.fdtodolist`。覆盖原正式 APK 需要原签名密钥。版本名称和构建号在 `pubspec.yaml` 中修改。
 
 ## iOS 构建
 
-在带有 Xcode 的 macOS 或提供 macOS 构建机的云平台执行。
+Codemagic 配置位于仓库根目录的 `codemagic.yaml`。导入 `hysgit/gxtoudo-app` 后，推送 `main` 会构建连接 `https://tudosrv.woslx.com` 的 Android debug APK 和 iOS Simulator 包。
+
+App Store IPA 工作流在推送 `v*` 标签时运行，需在 Codemagic 配置名称为 `gxtodo-app-store-connect` 的 API 集成和此 Bundle ID 的 App Store 签名。IPA 作为构建产物提供，不会自动上传 TestFlight。
 
 ```sh
 flutter pub get
-flutter build ios --simulator --dart-define=GXTODO_SERVER=https://todo.example.com
+flutter build ios --simulator --dart-define=GXTODO_SERVER=https://tudosrv.woslx.com
 ```
 
-发布时在 Runner 目标中设置 Apple Team 和签名，使用 `flutter build ipa --release --dart-define=GXTODO_SERVER=https://todo.example.com` 归档。Bundle ID 为 `net.icycloud.fdtodolist`，部署目标为 iOS 15。此工程尚未在 macOS 上完成构建验证。
+在 Runner 目标设置 Apple Team 和签名，再用 `flutter build ipa --release --dart-define=GXTODO_SERVER=https://tudosrv.woslx.com` 归档。Bundle ID 为 `net.icycloud.fdtodolist`，部署目标为 iOS 15。
 
 ## API 联调
 

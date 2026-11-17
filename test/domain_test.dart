@@ -1,10 +1,19 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gxtodo/api.dart';
 import 'package:gxtodo/domain.dart';
 import 'package:gxtodo/schedule.dart';
 import 'package:gxtodo/sync.dart';
 import 'package:gxtodo/tasks.dart';
 
 void main() {
+  test('默认服务端地址使用指定的 Codemagic 部署 API', () {
+    expect(defaultServer, 'https://tudosrv.woslx.com');
+    expect(serverOrigin(defaultServer), 'https://tudosrv.woslx.com');
+    expect(() => serverOrigin('http://116.62.150.127:8765'), throwsFormatException);
+    expect(() => serverOrigin('http://example.com:18019'), throwsFormatException);
+    expect(serverOrigin('https://todo.example.com'), 'https://todo.example.com');
+  });
+
   test('重复任务按本地日历计算，月末和结束日期正确', () {
     final start = seconds(DateTime(2026, 1, 31, 9, 30));
     final repeat = recurrence(4, start, seconds(DateTime(2026, 3, 31, 23, 59)));

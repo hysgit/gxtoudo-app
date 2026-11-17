@@ -1,11 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'domain.dart';
 
-const defaultServer = String.fromEnvironment('GXTODO_SERVER');
+const defaultServer = String.fromEnvironment('GXTODO_SERVER', defaultValue: 'https://tudosrv.woslx.com');
 const developmentHttp = bool.fromEnvironment('GXTODO_DEV_HTTP');
 
 class ApiFailure implements Exception {
@@ -29,7 +30,7 @@ String serverOrigin(String value) {
   }
   final local = {'localhost', '127.0.0.1', '10.0.2.2'}.contains(uri.host);
   if (uri.scheme != 'https' &&
-      !(developmentHttp && local && uri.scheme == 'http')) {
+      !(developmentHttp && !kIsWeb && local && uri.scheme == 'http')) {
     throw const FormatException('服务端地址必须使用 HTTPS');
   }
   return uri.origin;

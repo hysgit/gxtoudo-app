@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "net.icycloud.gxtodo"
+    namespace = "net.icycloud.fdtodolist"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
