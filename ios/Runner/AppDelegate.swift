@@ -139,9 +139,7 @@ private final class TodoAlarmStore {
       guard let entry = entries[id], !entry.dismissed else { continue }
       if try AlarmManager.shared.alarms.contains(where: { $0.id == entry.nativeID }) { continue }
       if existingIDs.contains(id) && entry.nextAt <= Date().timeIntervalSince1970 {
-        // A system stop can remove the alarm before its stop intent is delivered.
-        entries[id]?.dismissed = true
-        try persist()
+        // The stop or snooze intent may still be in transit; leave its state intact.
         continue
       }
       try await schedule(entry)
