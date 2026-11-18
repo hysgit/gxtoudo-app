@@ -12,6 +12,7 @@ import android.view.Gravity
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 
 class AlarmActivity : Activity() {
@@ -40,11 +41,11 @@ class AlarmActivity : Activity() {
         }
         content.addView(TextView(this).apply { text = "高效Todo 闹钟"; textSize = 28f; setTextColor(Color.rgb(30, 40, 60)) })
         for ((id, title) in alarms) {
-            content.addView(TextView(this).apply { text = title; textSize = 24f; gravity = Gravity.CENTER; setPadding(0, 40, 0, 24) })
+            content.addView(TextView(this).apply { text = title; textSize = 24f; setTextColor(Color.rgb(30, 40, 60)); gravity = Gravity.CENTER; setPadding(0, 40, 0, 24) })
             content.addView(Button(this).apply { text = "关闭闹钟"; setOnClickListener { AlarmStore.dismiss(this@AlarmActivity, id) } })
         }
-        content.addView(TextView(this).apply { text = "本次响铃 1 分钟，未关闭每 10 分钟再响"; setPadding(0, 32, 0, 0) })
-        setContentView(content)
+        content.addView(TextView(this).apply { text = "本次响铃 1 分钟，未关闭每 10 分钟再响"; setTextColor(Color.DKGRAY); setPadding(0, 32, 0, 0) })
+        setContentView(ScrollView(this).apply { isFillViewport = true; addView(content) })
     }
     override fun onDestroy() { unregisterReceiver(changes); super.onDestroy() }
 }
