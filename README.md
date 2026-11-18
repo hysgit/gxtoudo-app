@@ -46,16 +46,11 @@ flutter build appbundle --release
 
 ## iOS 构建
 
-Codemagic 配置位于仓库根目录的 `codemagic.yaml`。导入 `hysgit/gxtoudo-app` 后，推送 `main` 会在个人账户每月 500 分钟的免费 macOS 构建额度内构建 Android debug APK 和 iOS Simulator 包。仓库使用公开 Git URL 导入。
+Codemagic 配置位于仓库根目录的 `codemagic.yaml`。推送 `main` 会构建 iOS Simulator 包；Android APK 按本地构建流程生成，Codemagic 中的 Android debug 工作流仅手动运行。安装到 iPhone 使用手动工作流“高效Todo iOS TestFlight”：它以 App Store 分发签名生成 IPA，并上传到 TestFlight 内部测试，不会提交公开 App Store 审核。
 
-Codemagic 工作流当前会生成可安装的 Android debug APK 和 iOS Simulator 构建包。iPhone IPA 还需要 Apple Developer Program 账户及 App Store 签名配置，签名设置完成后可按 Codemagic 文档添加 IPA 发布工作流。Simulator 构建包不能直接安装到真机。
+首次启用 TestFlight 前，需在 App Store Connect 创建对应 App 记录和内部测试组“高效Todo 内测”，并在 Codemagic 连接可管理此 App 的 App Store Connect API key。测试者通过 TestFlight 安装，不需要开启 iPhone 开发者模式。
 
-```sh
-flutter pub get
-flutter build ios --simulator --dart-define=GXTODO_SERVER=https://tudosrv.woslx.com
-```
-
-要构建可安装到 iPhone 的 IPA，需先在 Runner 目标配置 Apple Team 和签名，然后在 macOS 上运行 `flutter build ipa --release --dart-define=GXTODO_SERVER=https://tudosrv.woslx.com`。Bundle ID 为 `net.icycloud.fdtodolist`，部署目标为 iOS 15。
+Bundle ID 为 `net.icycloud.fdtodolist`，部署目标为 iOS 15。iOS Simulator 工作流仍用于生成模拟器构建包，不能安装到真机。
 
 ## API 联调
 

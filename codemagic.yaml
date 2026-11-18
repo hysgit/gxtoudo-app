@@ -3,12 +3,6 @@ workflows:
     name: 高效Todo Android APK
     max_build_duration: 60
     instance_type: mac_mini_m2
-    triggering:
-      events: [push, pull_request]
-      branch_patterns:
-        - pattern: main
-          include: true
-          source: true
     environment:
       flutter: 3.50.0
       java: 17
@@ -71,16 +65,18 @@ workflows:
       - build/ios/高效Todo-iOS-Simulator.zip
       - /tmp/xcodebuild_logs/**/*.log
 
-  gxtodo-ios-adhoc:
-    name: 高效Todo iOS Ad Hoc IPA
+  gxtodo-ios-testflight:
+    name: 高效Todo iOS TestFlight
     max_build_duration: 90
     instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: tudo
     environment:
       flutter: 3.50.0
       xcode: latest
       cocoapods: default
       ios_signing:
-        distribution_type: ad_hoc
+        distribution_type: app_store
         bundle_identifier: net.icycloud.fdtodolist
       vars:
         GXTODO_SERVER: https://tudosrv.woslx.com
@@ -95,9 +91,9 @@ workflows:
         script: |
           flutter analyze
           flutter test
-      - name: Set up Ad Hoc code signing
+      - name: Set up App Store code signing
         script: xcode-project use-profiles
-      - name: Build signed iOS IPA
+      - name: Build App Store IPA
         script: |
           flutter build ipa --release \
             --build-number="$BUILD_NUMBER" \
@@ -106,3 +102,9 @@ workflows:
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/**/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        beta_groups:
+          - 高效Todo 内测
