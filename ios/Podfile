@@ -3,8 +3,8 @@ platform :ios, '15.0'
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
 # Backup import/export only needs document selection, not photos or audio.
-PICKER_MEDIA = false
-PICKER_AUDIO = false
+Pod::PICKER_MEDIA = false
+Pod::PICKER_AUDIO = false
 
 project 'Runner', {
   'Debug' => :debug,
