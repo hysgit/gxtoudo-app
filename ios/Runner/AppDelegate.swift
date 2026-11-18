@@ -1,9 +1,14 @@
 import Flutter
 import UIKit
 import UserNotifications
+import AlarmKit
+import AppIntents
+import CryptoKit
+import SwiftUI
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
+  private var alarmChannel: FlutterMethodChannel?
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -14,5 +19,184 @@ import UserNotifications
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    guard let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "TodoAlarms") else { return }
+    let channel = FlutterMethodChannel(
+      name: "net.icycloud.fdtodolist/alarms", binaryMessenger: registrar.messenger())
+    alarmChannel = channel
+    channel.setMethodCallHandler { call, result in
+      Task { @MainActor in
+        if call.method == "initialize" {
+          // Remove reminders left behind by the previous notification implementation.
+          UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+          result(nil)
+          return
+        }
+        guard #available(iOS 26.0, *) else {
+          if call.method == "status" { result(["authorized": false]); return }
+          result(FlutterError(code: "unsupported", message: "系统闹钟需要 iOS 26 或更高版本", details: nil))
+          return
+        }
+        do {
+          switch call.method {
+          case "authorize":
+            guard try await AlarmManager.shared.requestAuthorization() == .authorized else {
+              throw TodoAlarmError.permission
+            }
+            result(nil)
+          case "status":
+            result(["authorized": AlarmManager.shared.authorizationState == .authorized,
+              "canRequest": AlarmManager.shared.authorizationState == .notDetermined])
+          case "snapshot":
+            result(TodoAlarmStore.shared.snapshot())
+          case "synchronize":
+            try await TodoAlarmStore.shared.synchronize(call.arguments as? [[String: Any]] ?? [])
+            result(nil)
+          default:
+            result(FlutterMethodNotImplemented)
+          }
+        } catch {
+          result(FlutterError(code: "alarm", message: error.localizedDescription, details: nil))
+        }
+      }
+    }
+  }
+}
+
+@available(iOS 26.0, *)
+private enum TodoAlarmError: LocalizedError {
+  case permission
+  var errorDescription: String? { "请在系统设置中允许高效Todo使用闹钟" }
+}
+
+@available(iOS 26.0, *)
+struct TodoAlarmMetadata: AlarmMetadata {
+  var title: String
+}
+
+@available(iOS 26.0, *)
+private struct TodoAlarmEntry: Codable {
+  let id: String
+  let task: String
+  let occurrence: Int
+  let at: Int
+  var title: String
+  var nextAt: TimeInterval
+  var dismissed: Bool
+
+  var nativeID: UUID {
+    let b = Array(SHA256.hash(data: Data(id.utf8)))
+    return UUID(uuid: (b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
+      b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]))
+  }
+  var json: [String: Any] {
+    ["id": id, "task": task, "occurrence": occurrence, "at": at, "title": title]
+  }
+}
+
+@available(iOS 26.0, *)
+@MainActor
+private final class TodoAlarmStore {
+  static let shared = TodoAlarmStore()
+  private let storageKey = "task_alarms_v1"
+  private var entries: [String: TodoAlarmEntry]
+
+  private init() {
+    if let data = UserDefaults.standard.data(forKey: "task_alarms_v1"),
+       let stored = try? JSONDecoder().decode([String: TodoAlarmEntry].self, from: data) {
+      entries = stored
+    } else { entries = [:] }
+  }
+  private func persist() throws {
+    UserDefaults.standard.set(try JSONEncoder().encode(entries), forKey: storageKey)
+  }
+  func snapshot() -> [[String: Any]] {
+    entries.values.filter { !$0.dismissed }.map { $0.json }
+  }
+
+  func synchronize(_ desired: [[String: Any]]) async throws {
+    guard AlarmManager.shared.authorizationState == .authorized else { throw TodoAlarmError.permission }
+    var updated: [String: TodoAlarmEntry] = [:]
+    for value in desired {
+      guard let id = value["id"] as? String,
+            let task = value["task"] as? String,
+            let occurrence = value["occurrence"] as? NSNumber,
+            let at = value["at"] as? NSNumber,
+            let title = value["title"] as? String else { continue }
+      if var old = entries[id] {
+        old.title = title
+        updated[id] = old
+      } else {
+        updated[id] = TodoAlarmEntry(id: id, task: task, occurrence: occurrence.intValue,
+          at: at.intValue, title: title, nextAt: at.doubleValue, dismissed: false)
+      }
+    }
+    let removed = entries.values.filter { updated[$0.id] == nil }
+    entries = updated
+    try persist()
+    for entry in removed { try? AlarmManager.shared.cancel(id: entry.nativeID) }
+    let scheduled = Set(try AlarmManager.shared.alarms.map { $0.id })
+    for entry in updated.values where !entry.dismissed && !scheduled.contains(entry.nativeID) {
+      try await schedule(entry)
+      // A stop action can execute while schedule awaits the system.
+      if entries[entry.id]?.dismissed != false || entries[entry.id] == nil {
+        try? AlarmManager.shared.cancel(id: entry.nativeID)
+      }
+    }
+  }
+
+  private func schedule(_ entry: TodoAlarmEntry) async throws {
+    let stop = AlarmButton(text: "关闭", textColor: .white, systemImageName: "stop.fill")
+    let later = AlarmButton(text: "10 分钟后再响", textColor: .white, systemImageName: "clock.arrow.circlepath")
+    let alert = AlarmPresentation.Alert(title: LocalizedStringResource(stringLiteral: entry.title),
+      stopButton: stop, secondaryButton: later, secondaryButtonBehavior: .custom)
+    let attributes = AlarmAttributes(presentation: AlarmPresentation(alert: alert),
+      metadata: TodoAlarmMetadata(title: entry.title), tintColor: Color.blue)
+    let configuration = AlarmManager.AlarmConfiguration(
+      schedule: .fixed(Date(timeIntervalSince1970: max(entry.nextAt, Date().timeIntervalSince1970 + 1))),
+      attributes: attributes, stopIntent: StopTodoAlarm(alarmID: entry.id),
+      secondaryIntent: SnoozeTodoAlarm(alarmID: entry.id), sound: .default)
+    _ = try await AlarmManager.shared.schedule(id: entry.nativeID, configuration: configuration)
+  }
+
+  func stop(_ id: String) throws {
+    guard var entry = entries[id] else { return }
+    entry.dismissed = true
+    entries[id] = entry
+    try persist()
+    try? AlarmManager.shared.cancel(id: entry.nativeID)
+  }
+
+  func snooze(_ id: String) async throws {
+    guard var entry = entries[id], !entry.dismissed else { return }
+    entry.nextAt = Date().timeIntervalSince1970 + 600
+    entries[id] = entry
+    try persist()
+    try? AlarmManager.shared.cancel(id: entry.nativeID)
+    try await schedule(entry)
+    if entries[id]?.dismissed != false { try? AlarmManager.shared.cancel(id: entry.nativeID) }
+  }
+}
+
+@available(iOS 26.0, *)
+struct StopTodoAlarm: LiveActivityIntent {
+  static var title: LocalizedStringResource = "关闭任务闹钟"
+  @Parameter(title: "闹钟标识") var alarmID: String
+  init() {}
+  init(alarmID: String) { self.alarmID = alarmID }
+  @MainActor func perform() async throws -> some IntentResult {
+    try TodoAlarmStore.shared.stop(alarmID)
+    return .result()
+  }
+}
+
+@available(iOS 26.0, *)
+struct SnoozeTodoAlarm: LiveActivityIntent {
+  static var title: LocalizedStringResource = "10 分钟后再响"
+  @Parameter(title: "闹钟标识") var alarmID: String
+  init() {}
+  init(alarmID: String) { self.alarmID = alarmID }
+  @MainActor func perform() async throws -> some IntentResult {
+    try await TodoAlarmStore.shared.snooze(alarmID)
+    return .result()
   }
 }

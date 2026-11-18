@@ -194,6 +194,7 @@ class _TaskEditorState extends State<TaskEditor> {
     );
     setState(() => busy = true);
     try {
+      if (lead >= 0 && start > 0) await widget.onReminder?.call();
       await widget.controller.mutate(
         (data, who) =>
             saveTask(data, who, widget.team, widget.task?.uid, values),
@@ -201,8 +202,8 @@ class _TaskEditorState extends State<TaskEditor> {
       if (lead >= 0 && start > 0) {
         try {
           await widget.onReminder?.call();
-        } catch (_) {
-          if (mounted) message(context, '任务已保存，请检查系统通知设置');
+        } catch (error) {
+          if (mounted) message(context, '任务已保存，闹钟设置失败：$error');
         }
       }
       if (mounted) Navigator.pop(context);
@@ -330,10 +331,19 @@ class _TaskEditorState extends State<TaskEditor> {
             ),
             const SizedBox(height: 14),
             if (date != null) ...[
-              dropdown('提醒', lead, {
+              dropdown('闹钟提醒', lead, {
                 ...alarms,
                 if (!alarms.containsKey(lead)) lead: '原提醒设置',
               }, (value) => lead = value),
+              if (lead >= 0)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                  child: Text(
+                    Theme.of(context).platform == TargetPlatform.iOS
+                        ? '需要 iOS 26。响铃时可关闭或选择 10 分钟后再响。'
+                        : '每次响铃 1 分钟，未关闭则每 10 分钟再次响铃。',
+                  ),
+                ),
               const SizedBox(height: 12),
               dropdown('重复', repeat, {
                 for (final (index, label) in repeatNames.indexed) index: label,

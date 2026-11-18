@@ -1,123 +1,159 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:timezone/data/latest.dart' as tzdata;
-import 'package:timezone/timezone.dart' as tz;
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import 'controller.dart';
 import 'domain.dart';
 import 'schedule.dart';
 import 'tasks.dart';
 
+class TaskAlarm {
+  TaskAlarm(this.task, this.occurrence, this.at, this.title);
+
+  factory TaskAlarm.fromJson(Map<dynamic, dynamic> value) => TaskAlarm(
+    text(value['task']),
+    integer(value['occurrence']),
+    integer(value['at']),
+    text(value['title']),
+  );
+
+  final String task, title;
+  final int occurrence, at;
+  String get id => jsonEncode([task, occurrence, at]);
+  Fields toJson() => {
+    'id': id,
+    'task': task,
+    'occurrence': occurrence,
+    'at': at,
+    'title': title,
+  };
+}
+
+int alarmTime(Task task, int occurrence, int lead) {
+  if (lead > 864000) return occurrence + lead - task.start;
+  final date = localTime(occurrence);
+  if (lead == 0 && task.allDay) {
+    return seconds(DateTime(date.year, date.month, date.day, 9));
+  }
+  return occurrence - lead;
+}
+
+List<TaskAlarm> alarmPlan(
+  TodoController controller,
+  List<TaskAlarm> existing,
+  DateTime now, {
+  int limit = 60,
+}) {
+  final who = controller.identity;
+  final tasks = <String, Task>{
+    for (final space in controller.spaces)
+      for (final task in taskList(controller.data, who, space.id))
+        if (task.alert != null && task.start > 0)
+          jsonEncode([who.scope, task.team, task.uid]): task,
+  };
+  final planned = <String, TaskAlarm>{};
+  final current = seconds(now);
+  // Preserve native snoozes and active alarms without resetting their next ring.
+  for (final alarm in existing) {
+    final task = tasks[alarm.task];
+    if (task == null) continue;
+    final lead = integer(task.alert!.data['alert_time'], -1);
+    final occurrence = task.repeat == null
+        ? task.start
+        : task.on(dayOnly(localTime(alarm.occurrence)));
+    if (lead < 0 ||
+        occurrence != alarm.occurrence ||
+        alarmTime(task, occurrence, lead) != alarm.at ||
+        task.done(who.user, occurrence)) {
+      continue;
+    }
+    final retained = TaskAlarm(alarm.task, occurrence, alarm.at, task.name);
+    planned[retained.id] = retained;
+  }
+  for (final entry in tasks.entries) {
+    final task = entry.value;
+    final lead = integer(task.alert!.data['alert_time'], -1);
+    if (lead < 0) continue;
+    void add(int occurrence) {
+      if (occurrence <= 0 || task.done(who.user, occurrence)) return;
+      final at = alarmTime(task, occurrence, lead);
+      if (at <= current) return;
+      final alarm = TaskAlarm(entry.key, occurrence, at, task.name);
+      planned[alarm.id] = alarm;
+    }
+
+    if (task.repeat == null) {
+      add(task.start);
+    } else {
+      final first = dayOnly(localTime(task.start));
+      final today = dayOnly(now);
+      final start = first.isAfter(today) ? first : today;
+      for (var i = 0; i <= 31; i++) {
+        add(task.on(addDays(start, i)));
+      }
+    }
+  }
+  final result = planned.values.toList()..sort((a, b) => a.at.compareTo(b.at));
+  return result.take(limit).toList();
+}
+
 class TodoReminders {
   TodoReminders(this.controller);
   final TodoController controller;
-  final _plugin = FlutterLocalNotificationsPlugin();
+  static const _channel = MethodChannel('net.icycloud.fdtodolist/alarms');
   Future<void> _queued = Future.value();
   Timer? _debounce;
   bool _started = false;
 
   Future<void> start() async {
     if (!Platform.isIOS && !Platform.isAndroid) return;
-    tzdata.initializeTimeZones();
-    await _plugin.initialize(
-      const InitializationSettings(
-        android: AndroidInitializationSettings('ic_reminder'),
-        iOS: DarwinInitializationSettings(
-          requestAlertPermission: false,
-          requestBadgePermission: false,
-          requestSoundPermission: false,
-        ),
-      ),
-    );
+    await _channel.invokeMethod<void>('initialize');
     _started = true;
     controller.addListener(queue);
     queue();
   }
 
   Future<void> request() async {
-    if (!_started) return;
-    if (Platform.isAndroid) {
-      await _plugin
-          .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin
-          >()
-          ?.requestNotificationsPermission();
-    } else if (Platform.isIOS) {
-      await _plugin
-          .resolvePlatformSpecificImplementation<
-            IOSFlutterLocalNotificationsPlugin
-          >()
-          ?.requestPermissions(alert: true, sound: true);
+    if (!_started) throw StateError('闹钟尚未初始化，请重新打开 App');
+    try {
+      await _channel.invokeMethod<void>('authorize');
+      _debounce?.cancel();
+      _queued = _queued.catchError((Object _) {}).then((_) => _rebuild());
+      await _queued;
+    } on PlatformException catch (error) {
+      throw StateError(error.message ?? '请检查系统闹钟权限');
     }
-    queue();
   }
 
   void queue() {
     if (!_started) return;
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), () {
-      _queued = _queued.then((_) => _rebuild()).onError((_, _) {});
+      _queued = _queued.then((_) => _rebuild()).catchError((Object error) {
+        debugPrint('Alarm reconciliation failed: $error');
+      });
     });
   }
 
   Future<void> _rebuild() async {
     if (!controller.ready) return;
-    final now = seconds(DateTime.now());
-    final today = dayOnly(DateTime.now());
-    final upcoming = <(int, String)>[];
-    final who = controller.identity;
-    for (final space in controller.spaces) {
-      for (final task in taskList(controller.data, who, space.id)) {
-        if (task.alert == null || task.start <= 0) continue;
-        final lead = integer(task.alert!.data['alert_time'], -1);
-        if (lead < 0) continue;
-        final firstDay = dayOnly(localTime(task.start));
-        if (task.repeat == null) {
-          final at = _time(task, task.start, lead, firstDay);
-          if (at > now && !task.done(who.user, task.start)) {
-            upcoming.add((at, task.name));
-          }
-          continue;
-        }
-        final start = firstDay.isAfter(today) ? firstDay : today;
-        for (var i = 0; i <= 31; i++) {
-          final day = addDays(start, i);
-          final instance = task.on(day);
-          if (instance <= 0 || task.done(who.user, instance)) continue;
-          final at = _time(task, instance, lead, day);
-          if (at > now) upcoming.add((at, task.name));
-        }
-      }
+    final status = await _channel.invokeMapMethod<String, dynamic>('status');
+    if (status?['authorized'] != true) {
+      if (status?['canRequest'] != true) return;
+      await _channel.invokeMethod<void>('authorize');
     }
-    upcoming.sort((left, right) => left.$1.compareTo(right.$1));
-    await _plugin.cancelAllPendingNotifications();
-    for (final (index, alarm) in upcoming.take(60).indexed) {
-      await _plugin.zonedSchedule(
-        index + 1,
-        '高效Todo提醒',
-        alarm.$2,
-        tz.TZDateTime.fromMillisecondsSinceEpoch(tz.UTC, alarm.$1 * 1000),
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            'task_reminders',
-            '任务提醒',
-            importance: Importance.high,
-            priority: Priority.high,
-          ),
-          iOS: DarwinNotificationDetails(),
-        ),
-        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-      );
-    }
-  }
-
-  int _time(Task task, int occurrence, int lead, DateTime date) {
-    if (lead > 864000) return occurrence + lead - task.start;
-    if (lead == 0 && task.allDay) {
-      return seconds(DateTime(date.year, date.month, date.day, 9));
-    }
-    return occurrence - lead;
+    final values = await _channel.invokeListMethod<dynamic>('snapshot') ?? [];
+    final existing = values
+        .whereType<Map<dynamic, dynamic>>()
+        .map(TaskAlarm.fromJson)
+        .toList();
+    final plan = alarmPlan(controller, existing, DateTime.now());
+    await _channel.invokeMethod<void>(
+      'synchronize',
+      plan.map((alarm) => alarm.toJson()).toList(),
+    );
   }
 }

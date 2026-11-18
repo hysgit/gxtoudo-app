@@ -30,6 +30,8 @@
 	<false/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>用于连接你配置的高效Todo同步服务器。</string>
+	<key>NSAlarmKitUsageDescription</key>
+	<string>为你设置的任务安排系统闹钟，到点响铃并支持10分钟后再响。</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
