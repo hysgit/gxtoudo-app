@@ -130,12 +130,20 @@ private final class TodoAlarmStore {
           at: at.intValue, title: title, nextAt: at.doubleValue, dismissed: false)
       }
     }
+    let existingIDs = Set(entries.keys)
     let removed = entries.values.filter { updated[$0.id] == nil }
     entries = updated
     try persist()
     for entry in removed { try? AlarmManager.shared.cancel(id: entry.nativeID) }
-    let scheduled = Set(try AlarmManager.shared.alarms.map { $0.id })
-    for entry in updated.values where !entry.dismissed && !scheduled.contains(entry.nativeID) {
+    for id in updated.keys {
+      guard let entry = entries[id], !entry.dismissed else { continue }
+      if try AlarmManager.shared.alarms.contains(where: { $0.id == entry.nativeID }) { continue }
+      if existingIDs.contains(id) && entry.nextAt <= Date().timeIntervalSince1970 {
+        // A system stop can remove the alarm before its stop intent is delivered.
+        entries[id]?.dismissed = true
+        try persist()
+        continue
+      }
       try await schedule(entry)
       // A stop action can execute while schedule awaits the system.
       if entries[entry.id]?.dismissed != false || entries[entry.id] == nil {
