@@ -6,6 +6,8 @@ import 'catalog.dart';
 import 'cloud_pages.dart';
 import 'controller.dart';
 import 'domain.dart';
+import 'note_editor.dart';
+import 'notes.dart';
 import 'schedule.dart';
 import 'task_editor.dart';
 import 'tasks.dart';
@@ -45,6 +47,9 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
   bool archive = false, search = false;
   bool _calendarExpanded = false;
   double _calendarDrag = 0;
+  int? noteYear;
+  DateTime? noteDay;
+  String noteQuery = '';
 
   @override
   void initState() {
@@ -90,8 +95,11 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
     ),
   );
 
-  void editCatalog(int table, [Item? item]) =>
-      go(CatalogEditor(controller, controller.team, table, item: item));
+  void editCatalog(int table, [Item? item]) => go(
+    table == Tables.note
+        ? NoteEditor(controller, controller.team, note: item)
+        : CatalogEditor(controller, controller.team, table, item: item),
+  );
 
   void selectTab(int value) => setState(() {
     tab = value;
@@ -777,13 +785,89 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
   }
 
   Widget renderNotes() {
-    final notes = controller.data.list(controller.team, Tables.note).toList()
-      ..sort((a, b) => b.edited.compareTo(a.edited));
+    final all = controller.data.list(controller.team, Tables.note).toList();
+    final years =
+        all
+            .map(noteCreated)
+            .whereType<DateTime>()
+            .map((date) => date.year)
+            .toSet()
+            .toList()
+          ..sort((a, b) => b.compareTo(a));
+    if (noteYear != null && !years.contains(noteYear)) noteYear = null;
+    final notes = filterNotes(
+      all,
+      year: noteYear,
+      day: noteDay,
+      query: noteQuery,
+    );
     return PageContent(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
       children: [
+        TextFormField(
+          decoration: const InputDecoration(
+            labelText: '搜索便签文字',
+            prefixIcon: Icon(Icons.search),
+          ),
+          onChanged: (value) => setState(() => noteQuery = value),
+        ),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<int>(
+          key: ValueKey('note-year-${controller.team}-$noteYear'),
+          initialValue: noteYear ?? 0,
+          decoration: const InputDecoration(labelText: '年份'),
+          items: [
+            const DropdownMenuItem(value: 0, child: Text('全部年份')),
+            for (final year in years)
+              DropdownMenuItem(value: year, child: Text('$year 年')),
+          ],
+          onChanged: (value) => setState(() {
+            noteYear = value == 0 ? null : value;
+            noteDay = null;
+          }),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          children: [
+            FilterChip(
+              label: const Text('全部'),
+              selected: noteYear == null && noteDay == null,
+              onSelected: (_) => setState(() {
+                noteYear = null;
+                noteDay = null;
+              }),
+            ),
+            ActionChip(
+              avatar: const Icon(Icons.calendar_today_outlined, size: 18),
+              label: Text(
+                noteDay == null
+                    ? '按日期'
+                    : '${noteDay!.year}-${noteDay!.month}-${noteDay!.day}',
+              ),
+              onPressed: () async {
+                final day = await showDatePicker(
+                  context: context,
+                  initialDate: noteDay ?? DateTime.now(),
+                  firstDate: DateTime(1970),
+                  lastDate: DateTime(2100),
+                );
+                if (day != null && mounted) {
+                  setState(() {
+                    noteDay = day;
+                    noteYear = null;
+                  });
+                }
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
         if (notes.isEmpty)
-          const EmptyContent('还没有便签', icon: Icons.sticky_note_2_outlined),
+          EmptyContent(
+            all.isEmpty ? '还没有便签' : '没有符合条件的便签',
+            icon: Icons.sticky_note_2_outlined,
+          ),
         for (final note in notes) noteCard(note),
       ],
     );
@@ -794,7 +878,16 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
     child: Card(
       child: ListTile(
         leading: const Icon(Icons.sticky_note_2_outlined, color: blue),
-        title: Text(note.name, maxLines: 5, overflow: TextOverflow.ellipsis),
+        title: Text(
+          noteCreatedLabel(note),
+          style: const TextStyle(color: muted, fontSize: 13),
+        ),
+        subtitle: Text(
+          noteTitle(note),
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: ink, fontSize: 16),
+        ),
         onTap: () => editCatalog(Tables.note, note),
       ),
     ),

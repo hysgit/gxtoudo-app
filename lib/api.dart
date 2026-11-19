@@ -1,12 +1,16 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'domain.dart';
 
-const defaultServer = String.fromEnvironment('GXTODO_SERVER', defaultValue: 'https://tudosrv.woslx.com');
+const defaultServer = String.fromEnvironment(
+  'GXTODO_SERVER',
+  defaultValue: 'https://tudosrv.woslx.com',
+);
 const developmentHttp = bool.fromEnvironment('GXTODO_DEV_HTTP');
 
 class ApiFailure implements Exception {
@@ -82,6 +86,93 @@ class TodoApi {
   const TodoApi(this.server, [this.account]);
   final String server;
   final Account? account;
+
+  Map<String, dynamic> get sessionFields {
+    final signedIn = account;
+    if (signedIn == null) throw const ApiFailure('请先登录后保存图片或录音');
+    return {
+      'user_id': signedIn.user,
+      'login_id': signedIn.login,
+      'token': signedIn.token,
+    };
+  }
+
+  Future<Fields> uploadMedia(
+    File file,
+    int team,
+    String note,
+    String kind,
+    String name,
+  ) async {
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('${serverOrigin(server)}/api/v7/media/upload'),
+    )..followRedirects = false;
+    request.fields.addAll({
+      for (final entry in sessionFields.entries) entry.key: '${entry.value}',
+      'team_id': '$team',
+      'note_id': note,
+      'kind': kind,
+    });
+    request.files.add(
+      await http.MultipartFile.fromPath('file', file.path, filename: name),
+    );
+    final client = http.Client();
+    try {
+      final response = await client
+          .send(request)
+          .then(http.Response.fromStream)
+          .timeout(const Duration(minutes: 3));
+      final reply = fields(jsonDecode(utf8.decode(response.bodyBytes)));
+      if (response.statusCode != 200 || text(reply['status']) != '0') {
+        throw ApiFailure(
+          text(reply['message']).isEmpty
+              ? '附件上传失败，请重试'
+              : text(reply['message']),
+        );
+      }
+      return fields(reply['data']);
+    } finally {
+      client.close();
+    }
+  }
+
+  Future<void> downloadMedia(String id, File target) async {
+    final request =
+        http.Request(
+            'POST',
+            Uri.parse('${serverOrigin(server)}/api/v7/media/read'),
+          )
+          ..followRedirects = false
+          ..headers['Content-Type'] = 'application/json'
+          ..body = jsonEncode({...sessionFields, 'id': id});
+    final client = http.Client();
+    IOSink? sink;
+    try {
+      final response = await client
+          .send(request)
+          .timeout(const Duration(seconds: 30));
+      if (response.statusCode != 200 ||
+          (response.headers['content-type'] ?? '').startsWith(
+            'application/json',
+          )) {
+        throw const ApiFailure('附件读取失败，请检查登录状态和网络后重试');
+      }
+      sink = target.openWrite();
+      var size = 0;
+      await for (final bytes in response.stream.timeout(
+        const Duration(seconds: 60),
+      )) {
+        size += bytes.length;
+        if (size > 100 * 1024 * 1024) throw const ApiFailure('附件超过 100 MB');
+        sink.add(bytes);
+      }
+      await sink.flush();
+    } finally {
+      await sink?.close();
+      client.close();
+    }
+  }
 
   Future<Fields> call(
     String route, {

@@ -1,11 +1,12 @@
 # 高效Todo App
 
-Flutter 客户端使用一套 Dart 源码构建 Android 和 iOS 应用，版本为 `7.2.0+112`。本仓库包含 App 页面、离线数据、同步客户端和双端构建工程。服务端通过 HTTP API 独立连接。
+Flutter 客户端使用一套 Dart 源码构建 Android 和 iOS 应用，版本为 `7.3.0+115`。本仓库包含 App 页面、离线数据、同步客户端和双端构建工程。Java 服务端在独立的 [gxtoudo-server](https://github.com/hysgit/gxtoudo-server) 仓库维护，使用 PostgreSQL 和 MinIO。
 
 | 路径 | 内容 |
 | --- | --- |
 | `lib/home.dart` | 时间轴、任务列表、项目和便签首页 |
-| `lib/task_editor.dart` · `lib/catalog.dart` | 任务、项目、便签和分类编辑 |
+| `lib/task_editor.dart` · `lib/catalog.dart` | 任务、项目和分类编辑 |
+| `lib/note_editor.dart` · `lib/notes.dart` | 便签文字、原图、录音、语音输入和日期筛选 |
 | `lib/tasks.dart` · `lib/schedule.dart` | 任务、完成记录和重复日程规则 |
 | `lib/repository.dart` · `lib/domain.dart` | SQLite 本地存储及数据模型 |
 | `lib/api.dart` · `lib/sync.dart` · `lib/controller.dart` | 账户、服务端地址和增量同步 |
@@ -66,4 +67,12 @@ flutter test test/live_api_test.dart --dart-define=GXTODO_TEST_SERVER=http://127
 
 ## 当前功能范围
 
-已实现时间轴、任务、项目、便签、重复日程、标签、地点字段、子任务、系统本地提醒、统计、个人备份和团队协作。原服务的会员支付、第三方登录、云头像、地图 SDK、语音、桌面小组件和后台推送仍需后续接入。
+已实现时间轴、任务、项目、多媒体便签、重复日程、标签、地点字段、子任务、系统闹钟、统计、个人文字备份和团队协作。原服务的会员支付、第三方登录、云头像、地图 SDK、桌面小组件和后台推送仍需后续接入。
+
+便签支持混合文字、相册原图、拍照和录音。相册入口使用系统文件表示直接复制图片，关闭压缩，上传下载均检查 SHA-256。拍照使用最高质量，录音使用 AAC/M4A，可回放与拖动进度。每条最多 30 个附件，单文件最多 100 MB。
+
+“录音”保存声音文件；“语音转文字”使用手机系统语音识别，将结果插入光标处，可继续编辑。需要麦克风和系统语音识别权限，部分设备的识别服务需要网络；不会在服务器执行语音识别。识别和录音不能同时启动。App 进入后台会结束当前录音并保留在编辑页，点击“保存”后上传。
+
+文字便签可离线保存。新增图片和录音需要先登录并联网，上传失败保留编辑内容，可重试。旧文字便签自动兼容，创建时间保持不变，列表先显示创建日期时间，再显示内容首行作为便签名；没有文字时显示“图片便签”或“语音便签”。支持全部、按年、按指定日期筛选，以及全文搜索。
+
+本机备份 JSON 包含附件索引，不包含 MinIO 文件本体；完整恢复需同时保留服务端 PostgreSQL 与 MinIO 备份。

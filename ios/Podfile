@@ -2,8 +2,8 @@ platform :ios, '15.0'
 
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
-# Backup import/export only needs document selection, not photos or audio.
-Pod::PICKER_MEDIA = false
+# Notes support original photo selection from the system photo library.
+Pod::PICKER_MEDIA = true
 Pod::PICKER_AUDIO = false
 
 project 'Runner', {
