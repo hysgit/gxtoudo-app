@@ -504,7 +504,14 @@ class _NoteAttachmentTileState extends State<NoteAttachmentTile> {
     await directory.create(recursive: true);
     final id = text(widget.data['id']);
     final key = sha256.convert(utf8.encode(id)).toString();
-    final extension = widget.data['kind'] == 'audio' ? '.m4a' : '.image';
+    final extension = widget.data['kind'] == 'audio'
+        ? switch (text(widget.data['content_type'])) {
+            'audio/wav' => '.wav',
+            'audio/ogg' => '.ogg',
+            'audio/mpeg' => '.mp3',
+            _ => '.m4a',
+          }
+        : '.image';
     final cached = File('${directory.path}/$key$extension');
     if (await cached.exists()) return cached;
     final temporary = File('${cached.path}.${newId('download')}.part');
