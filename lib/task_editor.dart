@@ -51,8 +51,10 @@ class _TaskEditorState extends State<TaskEditor> {
   late String project = widget.task?.project ?? widget.project;
   late String place = widget.task?.place ?? '';
   late int repeat = repeatKind(widget.task?.repeat?.data);
-  late int lead = integer(widget.task?.alert?.data['alert_time'], -1);
-  late bool allDay = widget.task?.allDay ?? true;
+  late int lead = widget.task == null
+      ? 0
+      : integer(widget.task?.alert?.data['alert_time'], -1);
+  late bool allDay = widget.task?.allDay ?? false;
   late DateTime? date = (widget.task?.start ?? 0) > 0
       ? dayOnly(localTime(widget.task!.start))
       : widget.day;

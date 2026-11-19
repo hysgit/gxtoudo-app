@@ -43,6 +43,8 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
   DateTime selected = dayOnly(DateTime.now());
   String project = '', tag = '', query = '';
   bool archive = false, search = false;
+  bool _calendarExpanded = false;
+  double _calendarDrag = 0;
 
   @override
   void initState() {
@@ -327,6 +329,14 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
   Widget renderTimeline(List<Task> tasks) {
     final today = dayOnly(DateTime.now());
     final monday = addDays(selected, 1 - selected.weekday);
+    final first = DateTime(selected.year, selected.month);
+    final start = _calendarExpanded
+        ? addDays(first, 1 - first.weekday)
+        : monday;
+    final monthDays = DateTime(selected.year, selected.month + 1, 0).day;
+    final weeks = _calendarExpanded
+        ? (first.weekday - 1 + monthDays + 6) ~/ 7
+        : 1;
     final visible =
         tasks
             .where(matches)
@@ -338,6 +348,54 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
                 ? b.$1.rank.compareTo(a.$1.rank)
                 : a.$2.compareTo(b.$2),
           );
+    final calendarBody = Padding(
+      padding: const EdgeInsets.all(8),
+      child: Column(
+        key: ValueKey(_calendarExpanded ? 'month-calendar' : 'week-calendar'),
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_calendarExpanded)
+            Row(
+              children: [
+                for (final label in '一二三四五六日'.split(''))
+                  Expanded(
+                    child: Center(
+                      child: Text(
+                        label,
+                        style: const TextStyle(color: muted, fontSize: 12),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          for (var row = 0; row < weeks; row++)
+            Row(
+              children: [
+                for (var column = 0; column < 7; column++)
+                  Expanded(
+                    child: calendarDay(
+                      addDays(start, row * 7 + column),
+                      tasks,
+                      column,
+                      showWeekday: !_calendarExpanded,
+                    ),
+                  ),
+              ],
+            ),
+          Center(
+            child: Container(
+              margin: const EdgeInsets.only(top: 6, bottom: 2),
+              width: 32,
+              height: 4,
+              decoration: BoxDecoration(
+                color: line,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
     return PageContent(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
       children: [
@@ -369,33 +427,53 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
               child: const Text('今天'),
             ),
             IconButton(
-              tooltip: '上一周',
-              onPressed: () => setState(() => selected = addDays(selected, -7)),
+              tooltip: _calendarExpanded ? '上一月' : '上一周',
+              onPressed: () => changeCalendarPage(-1),
               icon: const Icon(Icons.chevron_left),
             ),
             IconButton(
-              tooltip: '下一周',
-              onPressed: () => setState(() => selected = addDays(selected, 7)),
+              tooltip: _calendarExpanded ? '下一月' : '下一周',
+              onPressed: () => changeCalendarPage(1),
               icon: const Icon(Icons.chevron_right),
             ),
           ],
         ),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(8),
-            child: Row(
-              children: [
-                for (var index = 0; index < 7; index++)
-                  Expanded(
-                    child: calendarDay(addDays(monday, index), tasks, index),
-                  ),
-              ],
+        Semantics(
+          label: _calendarExpanded ? '月历，上滑收起为周历' : '周历，下滑展开为月历',
+          onIncrease: () => setCalendarExpanded(true),
+          onDecrease: () => setCalendarExpanded(false),
+          child: GestureDetector(
+            key: const ValueKey('timeline-calendar'),
+            behavior: HitTestBehavior.opaque,
+            onVerticalDragStart: (_) => _calendarDrag = 0,
+            onVerticalDragUpdate: (details) =>
+                _calendarDrag += details.primaryDelta ?? 0,
+            onVerticalDragEnd: (details) {
+              final velocity = details.primaryVelocity ?? 0;
+              if (_calendarDrag.abs() >= 36 || velocity.abs() >= 450) {
+                setCalendarExpanded(
+                  _calendarDrag.abs() >= 36 ? _calendarDrag > 0 : velocity > 0,
+                );
+              }
+              _calendarDrag = 0;
+            },
+            onVerticalDragCancel: () => _calendarDrag = 0,
+            child: Card(
+              child: MediaQuery.disableAnimationsOf(context)
+                  ? calendarBody
+                  : AnimatedSize(
+                      alignment: Alignment.topCenter,
+                      duration: const Duration(milliseconds: 200),
+                      curve: Curves.easeOutCubic,
+                      child: calendarBody,
+                    ),
             ),
           ),
         ),
         const SizedBox(height: 20),
         Text(
           '${selected == today ? '今天 · ' : ''}${dayLabel(selected)}',
+          key: const ValueKey('timeline-selected-date'),
           style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w700),
         ),
         if (visible.isEmpty) const EmptyContent('这一天没有安排'),
@@ -404,21 +482,53 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
     );
   }
 
-  Widget calendarDay(DateTime date, List<Task> tasks, int index) {
+  void setCalendarExpanded(bool expanded) {
+    if (_calendarExpanded != expanded) {
+      setState(() => _calendarExpanded = expanded);
+    }
+  }
+
+  void changeCalendarPage(int direction) {
+    setState(() {
+      if (_calendarExpanded) {
+        final last = DateTime(selected.year, selected.month + direction + 1, 0);
+        selected = DateTime(
+          selected.year,
+          selected.month + direction,
+          selected.day.clamp(1, last.day),
+        );
+      } else {
+        selected = addDays(selected, direction * 7);
+      }
+    });
+  }
+
+  Widget calendarDay(
+    DateTime date,
+    List<Task> tasks,
+    int index, {
+    bool showWeekday = true,
+  }) {
     final active = date == selected;
+    final outsideMonth = _calendarExpanded && date.month != selected.month;
     final scheduled = tasks.any(
       (task) => timelineTime(task, date) > 0 && matches(task),
     );
     return Semantics(
+      key: ValueKey('calendar-day-${date.toIso8601String().substring(0, 10)}'),
       button: true,
       selected: active,
-      label: dayLabel(date),
+      label: '${dayLabel(date)}${scheduled ? '，有任务' : ''}',
+      onTap: () => setState(() => selected = date),
       excludeSemantics: true,
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: () => setState(() => selected = date),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
+          duration: MediaQuery.disableAnimationsOf(context)
+              ? Duration.zero
+              : const Duration(milliseconds: 120),
+          constraints: const BoxConstraints(minHeight: 48),
           padding: const EdgeInsets.symmetric(vertical: 8),
           decoration: BoxDecoration(
             color: active ? const Color(0xffe6effb) : null,
@@ -426,20 +536,31 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
           ),
           child: Column(
             children: [
-              Text(
-                '一二三四五六日'[index],
-                style: const TextStyle(color: muted, fontSize: 12),
-              ),
-              Text(
-                '${date.day}',
-                style: TextStyle(
-                  fontSize: 19,
-                  color: active ? blue : ink,
-                  fontWeight: FontWeight.w600,
+              if (showWeekday)
+                Text(
+                  '一二三四五六日'[index],
+                  style: const TextStyle(color: muted, fontSize: 12),
+                ),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  '${date.day}',
+                  style: TextStyle(
+                    fontSize: 19,
+                    color: active
+                        ? blue
+                        : outsideMonth
+                        ? muted
+                        : ink,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
               const SizedBox(height: 4),
               Container(
+                key: ValueKey(
+                  'calendar-dot-${date.toIso8601String().substring(0, 10)}',
+                ),
                 width: 4,
                 height: 4,
                 decoration: BoxDecoration(
