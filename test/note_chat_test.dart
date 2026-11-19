@@ -89,7 +89,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('便签'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('新建便签'));
+    await tester.tap(find.byTooltip('新建便签'));
     await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextFormField, '便签标题'), '日常记录');
     await tester.enterText(

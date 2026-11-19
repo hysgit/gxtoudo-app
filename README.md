@@ -1,6 +1,6 @@
 # 高效Todo App
 
-Flutter 客户端使用一套 Dart 源码构建 Android 和 iOS 应用，版本为 `7.4.1+117`。本仓库包含 App 页面、离线数据、同步客户端和双端构建工程。Java 服务端在独立的 [gxtoudo-server](https://github.com/hysgit/gxtoudo-server) 仓库维护，使用 PostgreSQL 和 MinIO。
+Flutter 客户端使用一套 Dart 源码构建 Android 和 iOS 应用，版本为 `7.4.2+118`。本仓库包含 App 页面、离线数据、同步客户端和双端构建工程。Java 服务端在独立的 [gxtoudo-server](https://github.com/hysgit/gxtoudo-server) 仓库维护，使用 PostgreSQL 和 MinIO。
 
 | 路径 | 内容 |
 | --- | --- |
@@ -84,3 +84,5 @@ App 开着时自动同步并重试失败项；Android 使用 WorkManager 的联�
 本机 JSON 备份包含会话数据和附件索引，不嵌入文件本体；完整备份还需保留本机文件目录，或服务端 PostgreSQL 与 MinIO 备份。
 
 任务列表中，未完成任务按计划时间升序，未安排任务在待完成区末尾；已完成任务按实际完成时间降序，最近完成的位于最上方。
+
+主列表采用紧凑平铺行，保留日期、提醒和任务优先级信息；没有日期的任务只占一行。新增按钮改为带语义提示的加号。四个主页面从屏幕左侧 24 点边缘向右滑切到下一个空间，从右侧边缘向左滑切到上一个空间，按空间菜单顺序循环。中央横滑、边缘短滑、反方向滑动和上下滚动不切换空间。左上角菜单仍可点开。

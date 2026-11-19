@@ -11,6 +11,7 @@ import 'notes.dart';
 import 'schedule.dart';
 import 'task_editor.dart';
 import 'tasks.dart';
+import 'space_swipe.dart';
 
 class TodoApp extends StatelessWidget {
   const TodoApp(this.controller, {super.key, this.onReminder, this.onResume});
@@ -50,6 +51,7 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
   int? noteYear;
   DateTime? noteDay;
   String noteQuery = '';
+  bool drawerOpen = false;
 
   @override
   void initState() {
@@ -113,6 +115,24 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
     query = '';
   });
 
+  void switchSpace(int direction) {
+    final spaces = controller.spaces;
+    if (spaces.length < 2) return;
+    final current = spaces.indexWhere((space) => space.id == controller.team);
+    final next = ((current < 0 ? 0 : current) + direction) % spaces.length;
+    setState(() {
+      filter = 0;
+      project = '';
+      tag = '';
+      search = false;
+      query = '';
+      noteYear = null;
+      noteDay = null;
+      noteQuery = '';
+    });
+    controller.selectSpace(spaces[next].id);
+  }
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: controller,
@@ -131,89 +151,100 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
         controller.identity,
         controller.team,
       );
-      return Scaffold(
-        appBar: AppBar(
-          title: Text(
-            controller.space.name.isEmpty ? '高效Todo' : controller.space.name,
-            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
-          ),
-          actions: [
-            IconButton(
-              tooltip: search ? '关闭搜索' : '搜索',
-              icon: Icon(search ? Icons.close : Icons.search),
-              onPressed: () => setState(() {
-                search = !search;
-                query = '';
-              }),
+      return SpaceSwipe(
+        enabled: !drawerOpen && controller.spaces.length > 1,
+        onSwitch: switchSpace,
+        child: Scaffold(
+          backgroundColor: Colors.white,
+          appBar: AppBar(
+            backgroundColor: Colors.white,
+            title: Text(
+              controller.space.name.isEmpty ? '高效Todo' : controller.space.name,
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
             ),
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: TextButton.icon(
-                onPressed: controller.syncing ? null : sync,
-                icon: controller.syncing
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Icon(
-                        controller.account == null
-                            ? Icons.person_outline
-                            : Icons.sync,
-                        size: 19,
-                      ),
-                label: Text(controller.account == null ? '登录' : '同步'),
+            actions: [
+              IconButton(
+                tooltip: search ? '关闭搜索' : '搜索',
+                icon: Icon(search ? Icons.close : Icons.search),
+                onPressed: () => setState(() {
+                  search = !search;
+                  query = '';
+                }),
               ),
-            ),
-          ],
-        ),
-        drawer: drawer(),
-        body: search
-            ? renderSearch(tasks)
-            : switch (tab) {
-                0 => renderTimeline(tasks),
-                1 => renderList(tasks),
-                2 => renderProjects(),
-                _ => renderNotes(),
-              },
-        floatingActionButton: FloatingActionButton.extended(
-          icon: const Icon(Icons.add),
-          label: Text(switch (tab) {
-            2 => '新建项目',
-            3 => '新建便签',
-            _ => '新建任务',
-          }),
-          onPressed: () {
-            if (tab == 2 || tab == 3) {
-              editCatalog(tab == 2 ? Tables.project : Tables.note);
-            } else {
-              editTask(null, day: tab == 0 ? selected : null);
-            }
-          },
-        ),
-        bottomNavigationBar: NavigationBar(
-          selectedIndex: tab,
-          onDestinationSelected: selectTab,
-          destinations: const [
-            NavigationDestination(
-              icon: Icon(Icons.calendar_today_outlined),
-              selectedIcon: Icon(Icons.calendar_month),
-              label: '时间轴',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.checklist_outlined),
-              label: '任务',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.folder_outlined),
-              selectedIcon: Icon(Icons.folder),
-              label: '项目',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.sticky_note_2_outlined),
-              label: '便签',
-            ),
-          ],
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: TextButton.icon(
+                  onPressed: controller.syncing ? null : sync,
+                  icon: controller.syncing
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(
+                          controller.account == null
+                              ? Icons.person_outline
+                              : Icons.sync,
+                          size: 19,
+                        ),
+                  label: Text(controller.account == null ? '登录' : '同步'),
+                ),
+              ),
+            ],
+          ),
+          drawer: drawer(),
+          drawerEnableOpenDragGesture: false,
+          onDrawerChanged: (value) => setState(() => drawerOpen = value),
+          body: KeyedSubtree(
+            key: ValueKey(controller.team),
+            child: search
+                ? renderSearch(tasks)
+                : switch (tab) {
+                    0 => renderTimeline(tasks),
+                    1 => renderList(tasks),
+                    2 => renderProjects(),
+                    _ => renderNotes(),
+                  },
+          ),
+          floatingActionButton: FloatingActionButton(
+            tooltip: switch (tab) {
+              2 => '新建项目',
+              3 => '新建便签',
+              _ => '新建任务',
+            },
+            child: const Icon(Icons.add),
+            onPressed: () {
+              if (tab == 2 || tab == 3) {
+                editCatalog(tab == 2 ? Tables.project : Tables.note);
+              } else {
+                editTask(null, day: tab == 0 ? selected : null);
+              }
+            },
+          ),
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: tab,
+            onDestinationSelected: selectTab,
+            destinations: const [
+              NavigationDestination(
+                icon: Icon(Icons.calendar_today_outlined),
+                selectedIcon: Icon(Icons.calendar_month),
+                label: '时间轴',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.checklist_outlined),
+                label: '任务',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.folder_outlined),
+                selectedIcon: Icon(Icons.folder),
+                label: '项目',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.sticky_note_2_outlined),
+                label: '便签',
+              ),
+            ],
+          ),
         ),
       );
     },
@@ -654,10 +685,14 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
       for (final (label, rows) in [('待完成', pending), ('已完成', checked)])
         if (rows.isNotEmpty) ...[
           Padding(
-            padding: const EdgeInsets.fromLTRB(2, 14, 0, 8),
+            padding: const EdgeInsets.fromLTRB(2, 12, 0, 4),
             child: Text(
               '$label  ${rows.length}',
-              style: const TextStyle(color: muted, fontWeight: FontWeight.w600),
+              style: const TextStyle(
+                color: muted,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
           for (final (task, occurrence) in rows) taskCard(task, occurrence),
@@ -668,68 +703,89 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
   Widget taskCard(Task task, int occurrence) {
     final done = task.done(controller.identity.user, occurrence);
     final when = occurrence == 0
-        ? '未安排'
+        ? ''
         : '${tab == 0 ? '' : '${dayLabel(localTime(occurrence))} '}${task.allDay ? '全天' : clock(localTime(occurrence))}';
     final meta = [
-      when,
+      if (when.isNotEmpty) when,
       if (task.repeat != null) repeatNames[repeatKind(task.repeat?.data)],
       if (task.tags.isNotEmpty) '#${text(task.tags.first.data['tag_name'])}',
     ];
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 7),
-      child: Card(
-        child: ListTile(
-          contentPadding: const EdgeInsets.only(left: 10, right: 14),
-          leading: Row(
-            mainAxisSize: MainAxisSize.min,
+    return InkWell(
+      onTap: () => editTask(task),
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: 2,
+          vertical: meta.isEmpty ? 0 : 4,
+        ),
+        child: ConstrainedBox(
+          key: ValueKey('task-row-${task.uid}'),
+          constraints: const BoxConstraints(minHeight: 48),
+          child: Row(
             children: [
-              Container(
-                width: 4,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: rankColors[task.rank - 1],
-                  borderRadius: BorderRadius.circular(3),
+              Container(width: 2, height: 20, color: rankColors[task.rank - 1]),
+              const SizedBox(width: 2),
+              SizedBox(
+                width: 48,
+                height: 48,
+                child: Tooltip(
+                  message: done ? '标记未完成' : '完成任务',
+                  child: Checkbox(
+                    value: done,
+                    activeColor: muted,
+                    onChanged: (_) async {
+                      try {
+                        await controller.mutate(
+                          (data, who) => toggleTask(
+                            data,
+                            who,
+                            task.team,
+                            task.uid,
+                            occurrence,
+                          ),
+                        );
+                      } catch (error) {
+                        if (mounted) message(context, error);
+                      }
+                    },
+                  ),
                 ),
               ),
-              Tooltip(
-                message: done ? '标记未完成' : '完成任务',
-                child: Checkbox(
-                  value: done,
-                  onChanged: (_) async {
-                    try {
-                      await controller.mutate(
-                        (data, who) => toggleTask(
-                          data,
-                          who,
-                          task.team,
-                          task.uid,
-                          occurrence,
-                        ),
-                      );
-                    } catch (error) {
-                      if (mounted) message(context, error);
-                    }
-                  },
+              const SizedBox(width: 6),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      task.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w400,
+                        color: done ? muted : ink,
+                        decoration: done ? TextDecoration.lineThrough : null,
+                      ),
+                    ),
+                    if (meta.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        meta.join(' · '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12, color: muted),
+                      ),
+                    ],
+                  ],
                 ),
               ),
+              if (task.alert != null)
+                const Padding(
+                  padding: EdgeInsets.only(left: 8),
+                  child: Icon(Icons.notifications_none, color: muted, size: 16),
+                ),
             ],
           ),
-          title: Text(
-            task.name,
-            style: TextStyle(
-              fontWeight: FontWeight.w600,
-              decoration: done ? TextDecoration.lineThrough : null,
-            ),
-          ),
-          subtitle: Text(
-            meta.join('  ·  '),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          trailing: task.alert == null
-              ? null
-              : const Icon(Icons.notifications_none, color: muted, size: 18),
-          onTap: () => editTask(task),
         ),
       ),
     );
@@ -758,31 +814,37 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
             icon: Icons.folder_outlined,
           ),
         for (final item in projects)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Card(
-              child: ListTile(
-                leading: Icon(Icons.folder, color: projectColor(item)),
-                title: Text(item.name),
-                subtitle: text(item.data['intro']).isEmpty
-                    ? null
-                    : Text(
-                        text(item.data['intro']),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                onTap: () => setState(() {
-                  tab = 1;
-                  filter = 0;
-                  project = item.uid;
-                  tag = '';
-                }),
-                trailing: IconButton(
-                  tooltip: '编辑项目',
-                  onPressed: () => editCatalog(Tables.project, item),
-                  icon: const Icon(Icons.edit_outlined),
-                ),
-              ),
+          ListTile(
+            dense: true,
+            minTileHeight: 48,
+            visualDensity: VisualDensity.compact,
+            minVerticalPadding: 4,
+            minLeadingWidth: 24,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 2),
+            leading: Icon(
+              Icons.folder_outlined,
+              color: projectColor(item),
+              size: 20,
+            ),
+            title: Text(item.name, style: const TextStyle(fontSize: 16)),
+            subtitle: text(item.data['intro']).isEmpty
+                ? null
+                : Text(
+                    text(item.data['intro']),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12, color: muted),
+                  ),
+            onTap: () => setState(() {
+              tab = 1;
+              filter = 0;
+              project = item.uid;
+              tag = '';
+            }),
+            trailing: IconButton(
+              tooltip: '编辑项目',
+              onPressed: () => editCatalog(Tables.project, item),
+              icon: const Icon(Icons.edit_outlined, size: 20),
             ),
           ),
       ],
@@ -879,24 +941,25 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
     );
   }
 
-  Widget noteCard(Item note) => Padding(
-    padding: const EdgeInsets.only(bottom: 8),
-    child: Card(
-      child: ListTile(
-        leading: const Icon(Icons.sticky_note_2_outlined, color: blue),
-        title: Text(
-          noteTitle(note),
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(color: ink, fontSize: 16),
-        ),
-        subtitle: Text(
-          noteCreatedLabel(note),
-          style: const TextStyle(color: muted, fontSize: 13),
-        ),
-        onTap: () => editCatalog(Tables.note, note),
-      ),
+  Widget noteCard(Item note) => ListTile(
+    dense: true,
+    minTileHeight: 48,
+    visualDensity: VisualDensity.compact,
+    minVerticalPadding: 4,
+    minLeadingWidth: 24,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 2),
+    leading: const Icon(Icons.sticky_note_2_outlined, color: blue, size: 20),
+    title: Text(
+      noteTitle(note),
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(color: ink, fontSize: 16),
     ),
+    subtitle: Text(
+      noteCreatedLabel(note),
+      style: const TextStyle(color: muted, fontSize: 12),
+    ),
+    onTap: () => editCatalog(Tables.note, note),
   );
 
   Widget renderSearch(List<Task> tasks) {

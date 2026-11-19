@@ -14,7 +14,7 @@ void main() {
     await controller.initialize();
     await tester.pumpWidget(TodoApp(controller));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('新建任务'));
+    await tester.tap(find.byTooltip('新建任务'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextFormField).first, '提交新版本');
     await tester.tap(find.text('保存'));
@@ -38,7 +38,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('便签'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('新建便签'));
+    await tester.tap(find.byTooltip('新建便签'));
     await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextFormField, '便签标题'), '带雨伞');
     await tester.pump(const Duration(milliseconds: 400));
