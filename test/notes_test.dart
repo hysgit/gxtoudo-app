@@ -28,7 +28,8 @@ void main() {
       ),
       [changed],
     );
-    expect(noteCreatedLabel(changed), startsWith('2024-06-05 '));
+    expect(day.toUtc(), DateTime.utc(2024, 6, 5, 0, 30));
+    expect(noteCreatedLabel(changed), startsWith('${day.year}-06-'));
     expect(noteTitle(changed), '会议');
   });
 
