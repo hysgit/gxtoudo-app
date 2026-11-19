@@ -512,12 +512,7 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
             ),
           ),
         ),
-        const SizedBox(height: 20),
-        Text(
-          '${selected == today ? '今天 · ' : ''}${dayLabel(selected)}',
-          key: const ValueKey('timeline-selected-date'),
-          style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w700),
-        ),
+        const SizedBox(height: 8),
         if (visible.isEmpty) const EmptyContent('这一天没有安排'),
         ...sections(visible),
       ],
@@ -722,8 +717,6 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
           constraints: const BoxConstraints(minHeight: 48),
           child: Row(
             children: [
-              Container(width: 2, height: 20, color: rankColors[task.rank - 1]),
-              const SizedBox(width: 2),
               SizedBox(
                 width: 48,
                 height: 48,

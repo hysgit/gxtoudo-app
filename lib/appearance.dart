@@ -5,12 +5,6 @@ const muted = Color(0xff5d6d83);
 const blue = Color(0xff346ab7);
 const paper = Color(0xfff5f8fc);
 const line = Color(0xffe7edf5);
-const rankColors = [
-  Color(0xff789bc5),
-  Color(0xff568b76),
-  Color(0xffbe793d),
-  Color(0xffbd5656),
-];
 
 ThemeData todoTheme() => ThemeData(
   colorScheme: ColorScheme.fromSeed(

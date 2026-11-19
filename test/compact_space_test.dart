@@ -96,6 +96,15 @@ void main() {
     final first = find.byKey(const ValueKey('task-row-task-0'));
     expect(tester.getSize(first).height, lessThanOrEqualTo(56));
     expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Container &&
+            widget.constraints?.maxWidth == 2 &&
+            widget.constraints?.maxHeight == 20,
+      ),
+      findsNothing,
+    );
+    expect(
       tester.getSize(find.byType(Checkbox).first).height,
       greaterThanOrEqualTo(44),
     );

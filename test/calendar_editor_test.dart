@@ -239,10 +239,7 @@ void main() {
       const Offset(0, 100),
     );
     await tester.pumpAndSettle();
-    await tester.drag(
-      find.byKey(const ValueKey('timeline-selected-date')),
-      const Offset(0, -100),
-    );
+    await tester.drag(find.text('日历任务').first, const Offset(0, -100));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('month-calendar')), findsOneWidget);
     expect(
