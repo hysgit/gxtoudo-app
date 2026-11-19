@@ -1,11 +1,8 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:just_audio/just_audio.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
@@ -15,31 +12,39 @@ import 'api.dart';
 import 'appearance.dart';
 import 'controller.dart';
 import 'domain.dart';
+import 'media_files.dart';
+import 'note_bubble.dart';
 import 'notes.dart';
 
 class NoteEditor extends StatefulWidget {
-  const NoteEditor(this.controller, this.team, {super.key, this.note});
+  const NoteEditor(
+    this.controller,
+    this.team, {
+    super.key,
+    this.note,
+    this.files,
+  });
   final TodoController controller;
   final int team;
   final Item? note;
-
+  final MediaFiles? files;
   @override
   State<NoteEditor> createState() => _NoteEditorState();
 }
 
-class _Attachment {
-  _Attachment(this.data, [this.file]);
-  Fields data;
-  File? file;
-}
-
 class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
-  late final input = TextEditingController(text: widget.note?.name);
+  late final title = TextEditingController(
+    text: widget.note == null ? '' : noteTitle(widget.note!),
+  );
+  final input = TextEditingController();
+  final scroll = ScrollController();
   late final uid = widget.note?.uid ?? newId(Tables.note);
   late final scope = widget.controller.identity.scope;
-  late final attachments = noteAttachments(widget.note)
-      .map((data) => _Attachment(data))
-      .toList();
+  late final files = widget.files ?? MediaFiles();
+  late bool hasSaved = widget.note != null;
+  final overrides = <String, Fields>{};
+  final localMedia = <String, Fields>{};
+  final removed = <String>{};
   final recorder = AudioRecorder();
   final speech = SpeechToText();
   bool busy = false,
@@ -48,14 +53,26 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
       dirty = false,
       leaving = false;
   int recordedSeconds = 0;
+  String? editing;
   Timer? timer;
-  String progress = '';
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    title.addListener(markDirty);
     input.addListener(markDirty);
+  }
+
+  void report(Object error) {
+    if (!mounted) return;
+    final detail = switch (error) {
+      ApiFailure failure => failure.message,
+      FormatException failure => failure.message,
+      FileSystemException _ => '本地文件保存失败，请检查存储空间后重试',
+      _ => '操作未完成，请重试',
+    };
+    message(context, detail);
   }
 
   void markDirty() {
@@ -76,27 +93,72 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
     timer?.cancel();
     unawaited(recorder.dispose());
     unawaited(speech.cancel());
+    title.dispose();
     input.dispose();
+    scroll.dispose();
     super.dispose();
   }
 
-  Future<void> addFile(String path, String kind, String name) async {
-    if (attachments.length >= 30) throw const ApiFailure('每条便签最多保存 30 个附件');
-    final file = File(path);
-    final size = await file.length();
-    if (size == 0 || size > 100 * 1024 * 1024) {
-      throw const ApiFailure('单个附件应为 1 字节至 100 MB');
+  List<Fields> messages() {
+    final data = widget.controller.data;
+    final note = data.get(widget.team, Tables.note, uid) ?? widget.note;
+    final entries = <String, Fields>{
+      if (note != null)
+        for (final row in noteMessages(data, note))
+          row.uid: {...row.data, 'uid': row.uid},
+    };
+    for (final entry in overrides.entries) {
+      entries[entry.key] = {...?entries[entry.key], ...entry.value};
     }
+    final values = entries.entries
+        .where((item) => !removed.contains(item.key))
+        .map((entry) => entry.value)
+        .toList();
+    values.sort((a, b) {
+      final order = integer(a['entry_at']).compareTo(integer(b['entry_at']));
+      return order == 0 ? text(a['uid']).compareTo(text(b['uid'])) : order;
+    });
+    return values;
+  }
+
+  void bottom() => WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (mounted && scroll.hasClients) {
+      scroll.animateTo(
+        scroll.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+      );
+    }
+  });
+
+  Future<void> addFile(
+    String path,
+    String kind,
+    String name, {
+    int duration = 0,
+  }) async {
+    final media = await files.importFile(File(path), kind);
+    final id = text(media['client_media_id']);
     if (!mounted) return;
     setState(() {
-      attachments.add(
-        _Attachment({'kind': kind, 'name': name, 'size': size}, file),
-      );
+      localMedia[id] = {...media, 'note_id': uid, 'team_id': widget.team};
+      final entry = newId(Tables.noteEntry);
+      overrides[entry] = {
+        ...media,
+        'uid': entry,
+        'note_id': uid,
+        'media_id': '',
+        'media_name': name,
+        'duration_ms': duration,
+        'entry_at': DateTime.now().millisecondsSinceEpoch,
+      };
       dirty = true;
     });
+    bottom();
   }
 
   Future<void> pickImage(bool camera) async {
+    FocusScope.of(context).unfocus();
     setState(() => busy = true);
     try {
       if (camera) {
@@ -117,7 +179,7 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
         }
       }
     } catch (error) {
-      if (mounted) message(context, error);
+      report(error);
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -152,7 +214,7 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
         if (recordedSeconds >= 3600) unawaited(stopRecording());
       });
     } catch (error) {
-      if (mounted) message(context, error);
+      report(error);
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -171,11 +233,12 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
         await addFile(
           path,
           'audio',
-          '录音 ${DateTime.now().toLocal().toString().substring(0, 19)}.m4a',
+          '录音.m4a',
+          duration: recordedSeconds * 1000,
         );
       }
     } catch (error) {
-      if (mounted) message(context, error);
+      report(error);
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -238,93 +301,129 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
       );
       if (mounted) setState(() => listening = speech.isListening);
     } catch (error) {
-      if (mounted) message(context, error);
+      report(error);
     } finally {
       if (mounted) setState(() => busy = false);
     }
   }
 
-  Future<void> save() async {
+  void appendText() {
+    final content = input.text.trim();
+    if (content.isEmpty) return;
+    final id = editing ?? newId(Tables.noteEntry);
+    final previous = messages().where((row) => row['uid'] == id).firstOrNull;
+    overrides[id] = {
+      ...?previous,
+      'uid': id,
+      'note_id': uid,
+      'kind': 'text',
+      'content': content,
+      'entry_at':
+          previous?['entry_at'] ?? DateTime.now().millisecondsSinceEpoch,
+    };
+    input.clear();
+    editing = null;
+  }
+
+  Future<void> save({bool close = true}) async {
     if (busy || recording) return;
-    if (input.text.trim().isEmpty && attachments.isEmpty) {
-      message(context, '请输入文字或添加图片、录音');
-      return;
-    }
-    if (input.text.length > 60000) {
-      message(context, '便签文字最多 60000 字');
+    if (title.text.trim().isEmpty) {
+      message(context, '请输入便签标题');
       return;
     }
     setState(() => busy = true);
     try {
       await speech.stop();
-      final api = widget.controller.api;
-      for (var i = 0; i < attachments.length; i++) {
-        final attachment = attachments[i];
-        if (text(attachment.data['id']).isNotEmpty) continue;
-        if (mounted) {
-          setState(() => progress = '正在上传附件 ${i + 1}/${attachments.length}');
-        }
-        final file = attachment.file!;
-        final metadata = await api.uploadMedia(
-          file,
-          widget.team,
-          uid,
-          text(attachment.data['kind']),
-          text(attachment.data['name']),
-        );
-        final hash = (await sha256.bind(file.openRead()).first).toString();
-        if (hash != text(metadata['sha256'])) {
-          throw const ApiFailure('附件校验失败，请重新上传');
-        }
-        attachment.data = metadata;
-      }
-      if (widget.controller.identity.scope != scope) {
-        throw const ApiFailure('账户已切换，请重新打开便签');
-      }
-      await widget.controller.mutate((workspace, who) {
-        if (who.scope != scope) {
-          throw const ApiFailure('账户已切换，请重新打开便签');
-        }
-        if (widget.note != null &&
-            workspace.get(widget.team, Tables.note, uid) == null) {
+      appendText();
+      final values = messages();
+      await widget.controller.mutate((data, who) {
+        if (who.scope != scope) throw const ApiFailure('账户已切换，请重新打开便签');
+        if (hasSaved && data.get(widget.team, Tables.note, uid) == null) {
           throw const ApiFailure('便签已删除');
         }
-        workspace.save(who, widget.team, Tables.note, uid, {
-          'name': input.text,
-          'sequence':
-              widget.note?.data['sequence'] ??
-              DateTime.now().millisecondsSinceEpoch,
-          'status': 0,
-          'attachments': jsonEncode(
-            attachments.map((item) => item.data).toList(),
-          ),
-        });
+        saveConversation(
+          data,
+          who,
+          widget.team,
+          uid,
+          title.text.trim(),
+          values,
+          localMedia,
+          removed: removed,
+        );
       });
-      if (mounted) {
-        setState(() => leaving = true);
+      if (!mounted) return;
+      setState(() {
+        hasSaved = true;
+        overrides.clear();
+        localMedia.clear();
+        removed.clear();
+        dirty = false;
+        leaving = close;
+      });
+      if (close) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) Navigator.pop(context);
         });
+      } else {
+        bottom();
       }
     } catch (error) {
-      if (mounted) message(context, error);
+      report(error);
     } finally {
       if (mounted) {
         setState(() {
           busy = false;
-          progress = '';
           listening = false;
         });
       }
     }
   }
 
+  Future<void> messageMenu(Fields entry) async {
+    if (busy || recording || listening) return;
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (entry['kind'] == 'text')
+              ListTile(
+                leading: const Icon(Icons.edit_outlined),
+                title: const Text('编辑文字'),
+                onTap: () => Navigator.pop(context, 'edit'),
+              ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: const Text('删除这条内容'),
+              onTap: () => Navigator.pop(context, 'delete'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (choice == 'edit') {
+      setState(() {
+        editing = text(entry['uid']);
+        input.text = text(entry['content']);
+      });
+    } else if (choice == 'delete') {
+      setState(() {
+        removed.add(text(entry['uid']));
+        dirty = true;
+      });
+      if (hasSaved) await save(close: false);
+    }
+  }
+
   Future<void> leave() async {
     if (busy || recording) {
-      message(context, '请先结束录音或等待保存完成');
+      message(context, '请先结束录音或等待本地保存完成');
       return;
     }
-    if (dirty && !await confirm(context, '放弃修改？', '尚未保存的文字和附件将被放弃。')) return;
+    if (dirty && !await confirm(context, '放弃尚未保存的修改？', '已保存到本机的内容会保留。')) return;
     if (!mounted) return;
     setState(() => leaving = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -332,20 +431,24 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
     });
   }
 
-  Future<void> remove() async {
-    if (!await confirm(context, '删除便签？', '这条便签的文字、图片和录音将不再显示。')) return;
+  Future<void> removeNote() async {
+    if (!await confirm(context, '删除便签？', '便签及会话内容将被删除，随后自动同步。')) return;
     if (!mounted) return;
     setState(() => busy = true);
     try {
-      await widget.controller.mutate((data, _) => data.remove(widget.note));
-      if (mounted) {
-        setState(() => leaving = true);
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) Navigator.pop(context);
-        });
-      }
+      await widget.controller.mutate((data, _) {
+        data.remove(data.get(widget.team, Tables.note, uid));
+        for (final entry in data.list(widget.team, Tables.noteEntry).toList()) {
+          if (entry.data['note_id'] == uid) data.remove(entry);
+        }
+      });
+      if (!mounted) return;
+      setState(() => leaving = true);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.pop(context);
+      });
     } catch (error) {
-      if (mounted) message(context, error);
+      report(error);
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -358,324 +461,183 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
       if (!didPop) unawaited(leave());
     },
     child: Scaffold(
+      backgroundColor: const Color(0xffededed),
       appBar: AppBar(
-        title: Text(widget.note == null ? '新建便签' : '编辑便签'),
+        title: Text(hasSaved ? title.text : '新建便签'),
         actions: [
+          if (hasSaved)
+            IconButton(
+              tooltip: '删除便签',
+              onPressed: busy || recording ? null : removeNote,
+              icon: const Icon(Icons.delete_outline),
+            ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: FilledButton(
-              onPressed: busy || recording ? null : save,
-              child: busy
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('保存'),
+              onPressed: busy || recording ? null : () => save(),
+              child: const Text('保存'),
             ),
           ),
         ],
       ),
-      body: PageContent(
-        children: [
-          if (widget.note != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Text(
-                noteCreatedLabel(widget.note!),
-                style: const TextStyle(color: muted),
-              ),
-            ),
-          TextFormField(
-            controller: input,
-            enabled: !busy && !listening,
-            decoration: const InputDecoration(labelText: '便签内容'),
-            minLines: 7,
-            maxLines: 18,
-            maxLength: 60000,
-          ),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              OutlinedButton.icon(
-                onPressed: busy || recording || listening
-                    ? null
-                    : () => pickImage(false),
-                icon: const Icon(Icons.photo_library_outlined),
-                label: const Text('相册原图'),
-              ),
-              OutlinedButton.icon(
-                onPressed: busy || recording || listening
-                    ? null
-                    : () => pickImage(true),
-                icon: const Icon(Icons.camera_alt_outlined),
-                label: const Text('拍照'),
-              ),
-              OutlinedButton.icon(
-                onPressed: busy || listening ? null : toggleRecording,
-                icon: Icon(
-                  recording ? Icons.stop_circle_outlined : Icons.mic_none,
-                ),
-                label: Text(
-                  recording
-                      ? '结束录音 ${recordedSeconds ~/ 60}:${(recordedSeconds % 60).toString().padLeft(2, '0')}'
-                      : '录音',
-                ),
-              ),
-              OutlinedButton.icon(
-                onPressed: busy || recording ? null : dictate,
-                icon: Icon(
-                  listening
-                      ? Icons.stop_circle_outlined
-                      : Icons.keyboard_voice_outlined,
-                ),
-                label: Text(listening ? '结束识别' : '语音转文字'),
-              ),
-            ],
-          ),
-          if (progress.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              child: Text(progress),
-            ),
-          const SizedBox(height: 16),
-          for (final attachment in attachments)
-            NoteAttachmentTile(
-              key: ObjectKey(attachment),
-              api: widget.controller.api,
-              data: attachment.data,
-              localFile: attachment.file,
-              enabled: !busy && !recording && !listening,
-              onRemove: busy || recording || listening
-                  ? null
-                  : () => setState(() {
-                      attachments.remove(attachment);
-                      dirty = true;
-                    }),
-            ),
-          if (widget.note != null)
-            TextButton(
-              onPressed: busy || recording || listening ? null : remove,
-              child: Text(
-                '删除便签',
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-            ),
-        ],
-      ),
-    ),
-  );
-}
-
-class NoteAttachmentTile extends StatefulWidget {
-  const NoteAttachmentTile({
-    super.key,
-    required this.api,
-    required this.data,
-    this.localFile,
-    this.onRemove,
-    this.enabled = true,
-  });
-  final TodoApi api;
-  final Fields data;
-  final File? localFile;
-  final VoidCallback? onRemove;
-  final bool enabled;
-
-  @override
-  State<NoteAttachmentTile> createState() => _NoteAttachmentTileState();
-}
-
-class _NoteAttachmentTileState extends State<NoteAttachmentTile> {
-  late Future<File> file = load();
-  final player = AudioPlayer();
-  bool loadingAudio = false;
-
-  Future<File> load() async {
-    if (widget.localFile != null) return widget.localFile!;
-    final account = widget.api.account;
-    if (account == null) throw const ApiFailure('请登录后读取附件');
-    final root = await getApplicationSupportDirectory();
-    final scope = sha256
-        .convert(utf8.encode(account.identity.scope))
-        .toString();
-    final directory = Directory('${root.path}/note-media/$scope');
-    await directory.create(recursive: true);
-    final id = text(widget.data['id']);
-    final key = sha256.convert(utf8.encode(id)).toString();
-    final extension = widget.data['kind'] == 'audio'
-        ? switch (text(widget.data['content_type'])) {
-            'audio/wav' => '.wav',
-            'audio/ogg' => '.ogg',
-            'audio/mpeg' => '.mp3',
-            _ => '.m4a',
-          }
-        : '.image';
-    final cached = File('${directory.path}/$key$extension');
-    if (await cached.exists()) return cached;
-    final temporary = File('${cached.path}.${newId('download')}.part');
-    try {
-      await widget.api.downloadMedia(id, temporary);
-      final hash = (await sha256.bind(temporary.openRead()).first).toString();
-      if (hash != text(widget.data['sha256']) ||
-          await temporary.length() != integer(widget.data['size'])) {
-        throw const ApiFailure('附件下载不完整，请重试');
-      }
-      await temporary.rename(cached.path);
-      return cached;
-    } catch (_) {
-      if (await temporary.exists()) await temporary.delete();
-      rethrow;
-    }
-  }
-
-  Future<void> play(File audio) async {
-    if (loadingAudio) return;
-    if (player.playing) {
-      await player.pause();
-      return;
-    }
-    setState(() => loadingAudio = true);
-    try {
-      if (player.audioSource == null) await player.setFilePath(audio.path);
-      if (player.processingState == ProcessingState.completed) {
-        await player.seek(Duration.zero);
-      }
-      unawaited(
-        player.play().catchError((Object error) {
-          if (mounted) message(context, '无法播放录音，请重试');
-        }),
-      );
-    } catch (error) {
-      if (mounted) message(context, '无法播放录音，请重试');
-    } finally {
-      if (mounted) setState(() => loadingAudio = false);
-    }
-  }
-
-  @override
-  void dispose() {
-    unawaited(player.dispose());
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 12),
-    child: Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
+      body: SafeArea(
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    text(widget.data['name']),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: TextFormField(
+                controller: title,
+                enabled: !busy,
+                maxLength: 100,
+                decoration: const InputDecoration(
+                  labelText: '便签标题',
+                  counterText: '',
                 ),
-                IconButton(
-                  tooltip: '移除附件',
-                  onPressed: widget.onRemove,
-                  icon: const Icon(Icons.close),
-                ),
-              ],
+              ),
             ),
-            FutureBuilder<File>(
-              future: file,
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return TextButton.icon(
-                    onPressed: () => setState(() => file = load()),
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('附件加载失败，点击重试'),
+            Expanded(
+              child: ListenableBuilder(
+                listenable: widget.controller,
+                builder: (context, _) {
+                  final values = messages();
+                  if (values.isEmpty) {
+                    return const Center(
+                      child: Text(
+                        '在这里记录文字、图片和语音',
+                        style: TextStyle(color: muted),
+                      ),
+                    );
+                  }
+                  return ListView.builder(
+                    controller: scroll,
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                    itemCount: values.length,
+                    itemBuilder: (context, index) {
+                      final entry = values[index];
+                      final local =
+                          localMedia[text(entry['client_media_id'])] ??
+                          widget.controller.data.media[text(
+                            entry['client_media_id'],
+                          )];
+                      return NoteBubble(
+                        key: ValueKey(entry['uid']),
+                        entry: entry,
+                        media: {...entry, ...?local},
+                        files: files,
+                        scope: scope,
+                        enabled: !busy && !recording && !listening,
+                        onLongPress: () => messageMenu(entry),
+                        onRetry: () {
+                          unawaited(
+                            widget.controller.sync().catchError((Object error) {
+                              if (context.mounted) {
+                                message(context, '网络恢复后会自动同步');
+                              }
+                              return 0;
+                            }),
+                          );
+                        },
+                      );
+                    },
                   );
-                }
-                final value = snapshot.data;
-                if (value == null) {
-                  return const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Center(child: CircularProgressIndicator()),
-                  );
-                }
-                if (widget.data['kind'] == 'image') {
-                  return InkWell(
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => Scaffold(
-                          appBar: AppBar(title: const Text('原图')),
-                          body: Center(
-                            child: InteractiveViewer(
-                              minScale: 0.5,
-                              maxScale: 8,
-                              child: Image.file(
-                                value,
-                                errorBuilder: (_, _, _) =>
-                                    const Text('系统暂不支持预览此图片格式'),
-                              ),
+                },
+              ),
+            ),
+            if (recording || listening)
+              Padding(
+                padding: const EdgeInsets.all(8),
+                child: Text(
+                  recording
+                      ? '正在录音 ${recordedSeconds ~/ 60}:${(recordedSeconds % 60).toString().padLeft(2, '0')}'
+                      : '正在语音转文字…',
+                ),
+              ),
+            if (editing != null)
+              Row(
+                children: [
+                  const SizedBox(width: 16),
+                  const Text('编辑消息'),
+                  IconButton(
+                    tooltip: '取消编辑',
+                    onPressed: () => setState(() {
+                      editing = null;
+                      input.clear();
+                    }),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ColoredBox(
+              color: const Color(0xfff7f7f7),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
+                child: Column(
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: input,
+                            enabled: !busy && !listening,
+                            minLines: 1,
+                            maxLines: 5,
+                            maxLength: 60000,
+                            decoration: const InputDecoration(
+                              hintText: '输入内容',
+                              counterText: '',
                             ),
                           ),
                         ),
-                      ),
-                    ),
-                    child: Image.file(
-                      value,
-                      height: 180,
-                      fit: BoxFit.contain,
-                      cacheWidth: 720,
-                      semanticLabel: '便签图片，点击查看原图',
-                      errorBuilder: (_, _, _) =>
-                          const Text('原图已保存，系统暂不支持预览此格式'),
-                    ),
-                  );
-                }
-                return StreamBuilder<PlayerState>(
-                  stream: player.playerStateStream,
-                  builder: (context, state) => Column(
-                    children: [
-                      FilledButton.tonalIcon(
-                        onPressed: !widget.enabled || loadingAudio
-                            ? null
-                            : () => play(value),
-                        icon: Icon(
-                          state.data?.playing == true
-                              ? Icons.pause
-                              : Icons.play_arrow,
+                        const SizedBox(width: 8),
+                        FilledButton(
+                          onPressed: busy || recording || listening
+                              ? null
+                              : () => save(close: false),
+                          child: const Text('发送'),
                         ),
-                        label: Text(
-                          loadingAudio
-                              ? '正在加载'
-                              : state.data?.playing == true
-                              ? '暂停'
-                              : '播放录音',
+                      ],
+                    ),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        IconButton(
+                          tooltip: '相册原图',
+                          onPressed: busy || recording || listening
+                              ? null
+                              : () => pickImage(false),
+                          icon: const Icon(Icons.photo_library_outlined),
                         ),
-                      ),
-                      StreamBuilder<Duration>(
-                        stream: player.positionStream,
-                        builder: (_, position) {
-                          final duration = player.duration?.inMilliseconds ?? 0;
-                          return Slider(
-                            value: (position.data?.inMilliseconds ?? 0)
-                                .clamp(0, duration)
-                                .toDouble(),
-                            max: duration > 0 ? duration.toDouble() : 1,
-                            onChanged: duration > 0
-                                ? (value) => player.seek(
-                                    Duration(milliseconds: value.round()),
-                                  )
-                                : null,
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                );
-              },
+                        IconButton(
+                          tooltip: '拍照',
+                          onPressed: busy || recording || listening
+                              ? null
+                              : () => pickImage(true),
+                          icon: const Icon(Icons.camera_alt_outlined),
+                        ),
+                        IconButton(
+                          tooltip: recording ? '结束录音' : '录音',
+                          onPressed: busy || listening ? null : toggleRecording,
+                          icon: Icon(
+                            recording
+                                ? Icons.stop_circle_outlined
+                                : Icons.mic_none,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: listening ? '结束识别' : '语音转文字',
+                          onPressed: busy || recording ? null : dictate,
+                          icon: Icon(
+                            listening
+                                ? Icons.stop_circle_outlined
+                                : Icons.keyboard_voice_outlined,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
             ),
           ],
         ),

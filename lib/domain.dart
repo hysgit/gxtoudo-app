@@ -4,6 +4,7 @@ typedef Fields = Map<String, dynamic>;
 
 abstract final class Tables {
   static const note = 49,
+      noteEntry = 50,
       tag = 59,
       place = 69,
       check = 76,
@@ -20,6 +21,7 @@ abstract final class Tables {
       project = 99;
   static const all = {
     note,
+    noteEntry,
     tag,
     place,
     check,
@@ -155,9 +157,11 @@ class WorkspaceData {
     Map<String, Item>? items,
     Map<String, int>? cursors,
     List<Space>? spaces,
+    Map<String, Fields>? media,
   }) : items = items ?? {},
        cursors = cursors ?? {},
-       spaces = spaces ?? [];
+       spaces = spaces ?? [],
+       media = media ?? {};
 
   factory WorkspaceData.fromJson(Fields value) {
     final rows = objects(value['items']).map(Item.fromJson);
@@ -166,17 +170,21 @@ class WorkspaceData {
       cursors: fields(value['cursors'])
           .map((key, value) => MapEntry(key, integer(value))),
       spaces: objects(value['spaces']).map(Space.fromJson).toList(),
+      media: fields(value['media'])
+          .map((key, value) => MapEntry(key, fields(value))),
     );
   }
 
   final Map<String, Item> items;
   final Map<String, int> cursors;
   List<Space> spaces;
+  final Map<String, Fields> media;
 
   Fields toJson() => {
     'items': items.values.map((item) => item.toJson()).toList(),
     'cursors': cursors,
     'spaces': spaces.map((space) => space.toJson()).toList(),
+    'media': media,
   };
 
   Iterable<Item> list(int team, int table) => items.values.where(
@@ -243,6 +251,11 @@ class WorkspaceData {
         .where((item) => !item.removed && item.team == who.personal)
         .map((item) => {'table': item.table, 'data': item.data})
         .toList(),
+    'media': Map.fromEntries(
+      media.entries.where(
+        (entry) => integer(entry.value['team_id']) == who.personal,
+      ),
+    ),
   };
 
   int importPersonal(Identity who, Fields backup) {
@@ -269,8 +282,18 @@ class WorkspaceData {
       }
       if (items.containsKey(itemKey(who.personal, table, uid))) continue;
       data.remove('entropy');
+      if (table == Tables.noteEntry &&
+          fields(backup['media']).containsKey(text(data['client_media_id']))) {
+        data['media_id'] = '';
+      }
       save(who, who.personal, table, uid, {...data, 'user_id': who.user});
       added++;
+    }
+    for (final entry in fields(backup['media']).entries) {
+      media.putIfAbsent(
+        entry.key,
+        () => {...fields(entry.value), 'team_id': who.personal, 'media_id': ''},
+      );
     }
     return added;
   }

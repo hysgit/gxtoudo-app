@@ -65,7 +65,10 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) widget.onResume?.call();
+    if (state == AppLifecycleState.resumed) {
+      widget.onResume?.call();
+      controller.resume();
+    }
   }
 
   Future<T?> go<T>(Widget screen) =>
@@ -800,6 +803,7 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
       year: noteYear,
       day: noteDay,
       query: noteQuery,
+      data: controller.data,
     );
     return PageContent(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
@@ -879,14 +883,14 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
       child: ListTile(
         leading: const Icon(Icons.sticky_note_2_outlined, color: blue),
         title: Text(
-          noteCreatedLabel(note),
-          style: const TextStyle(color: muted, fontSize: 13),
-        ),
-        subtitle: Text(
           noteTitle(note),
-          maxLines: 3,
+          maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(color: ink, fontSize: 16),
+        ),
+        subtitle: Text(
+          noteCreatedLabel(note),
+          style: const TextStyle(color: muted, fontSize: 13),
         ),
         onTap: () => editCatalog(Tables.note, note),
       ),
@@ -902,7 +906,12 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
     );
     final notes = controller.data
         .list(controller.team, Tables.note)
-        .where((item) => item.name.toLowerCase().contains(needle));
+        .where(
+          (item) => noteSearchText(
+            controller.data,
+            item,
+          ).toLowerCase().contains(needle),
+        );
     final projects = controller.data
         .list(controller.team, Tables.project)
         .where((item) => item.name.toLowerCase().contains(needle));

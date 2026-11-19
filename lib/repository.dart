@@ -23,6 +23,7 @@ class SqliteRepository implements LocalRepository {
     return openDatabase(
       '${await getDatabasesPath()}/gxtodo.db',
       version: 1,
+      onConfigure: (db) => db.execute('PRAGMA busy_timeout=15000'),
       onCreate: (db, _) async {
         await db.execute(
           'CREATE TABLE workspace(scope TEXT PRIMARY KEY, payload TEXT NOT NULL)',

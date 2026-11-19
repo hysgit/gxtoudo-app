@@ -4,11 +4,21 @@ import 'dart:math';
 import 'api.dart';
 import 'domain.dart';
 import 'repository.dart';
+import 'media_files.dart';
+import 'media_sync.dart';
 
 Iterable<Item> _pending(WorkspaceData data, Set<int> active) sync* {
   final pending =
       data.items.values
-          .where((row) => row.pending != 0 && active.contains(row.team))
+          .where(
+            (row) =>
+                row.pending != 0 &&
+                active.contains(row.team) &&
+                (row.removed ||
+                    row.table != Tables.noteEntry ||
+                    row.data['kind'] == 'text' ||
+                    text(row.data['media_id']).isNotEmpty),
+          )
           .toList()
         ..sort((a, b) => a.edited.compareTo(b.edited));
   var bytes = 0;
@@ -93,11 +103,24 @@ void applyPage(WorkspaceData current, List<Item> sent, Fields reply) {
   }
 }
 
-Future<int> synchronize(LocalRepository store, Account account) async {
-  final api = TodoApi(account.server, account);
+Future<int> synchronize(
+  LocalRepository store,
+  Account account, {
+  TodoApi? client,
+  MediaFiles? mediaFiles,
+  Future<void> Function()? onChanged,
+}) async {
+  final api = client ?? TodoApi(account.server, account);
+  final files = mediaFiles ?? MediaFiles();
   final scope = account.identity.scope;
   final response = await api.call('/team/list', method: 'GET');
   var workspace = await store.change(scope, (workspace) {
+    // Older apps advanced their cursors past table 50 without understanding it.
+    // Fetch a complete server snapshot once, retaining all pending local edits.
+    if (workspace.cursors['note_conversation_version'] != 1) {
+      workspace.cursors.removeWhere((key, _) => key.startsWith('t'));
+      workspace.cursors['note_conversation_version'] = 1;
+    }
     final personal =
         workspace.spaces.where((space) => space.type == 1).firstOrNull ??
         Space(account.personal, '个人空间', 1, account.user);
@@ -109,6 +132,15 @@ Future<int> synchronize(LocalRepository store, Account account) async {
     ];
   });
   final active = workspace.spaces.map((space) => space.id).toSet();
+  final uploadFailed = await uploadNoteFiles(
+    store,
+    account,
+    api,
+    files,
+    active,
+  );
+  workspace = await store.read(scope);
+  await onChanged?.call();
   var total = 0;
   for (var page = 0; page < 250; page++) {
     final sent = _pending(workspace, active).toList();
@@ -125,10 +157,29 @@ Future<int> synchronize(LocalRepository store, Account account) async {
       scope,
       (current) => applyPage(current, sent, reply),
     );
+    await onChanged?.call();
     total += sent.length;
     final hasMore = objects(reply['down_extra'])
         .any((entry) => integer(entry['remain']) > 0);
-    if (!hasMore && _pending(workspace, active).isEmpty) return total;
+    if (!hasMore && _pending(workspace, active).isEmpty) {
+      final downloadFailed = await downloadNoteFiles(
+        store,
+        account,
+        api,
+        files,
+        active,
+      );
+      await onChanged?.call();
+      if (uploadFailed ||
+          downloadFailed ||
+          mediaMessages(
+            workspace,
+            active,
+          ).any((row) => text(row.data['media_id']).isEmpty)) {
+        throw const ApiFailure('文字已同步，图片和录音将在网络恢复后自动重试');
+      }
+      return total;
+    }
   }
   throw const ApiFailure('本轮同步达到分页上限，请再同步一次');
 }

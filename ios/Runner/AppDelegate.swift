@@ -5,6 +5,7 @@ import AlarmKit
 import AppIntents
 import CryptoKit
 import SwiftUI
+import workmanager_apple
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -14,6 +15,12 @@ import SwiftUI
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     UNUserNotificationCenter.current().delegate = self
+    WorkmanagerPlugin.setPluginRegistrantCallback { registry in
+      GeneratedPluginRegistrant.register(with: registry)
+    }
+    WorkmanagerPlugin.registerPeriodicTask(withIdentifier: "net.icycloud.fdtodolist.sync.refresh")
+    WorkmanagerPlugin.registerBGProcessingTask(withIdentifier: "net.icycloud.fdtodolist.sync.processing")
+    WorkmanagerPlugin.registerLaunchHandlers()
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 

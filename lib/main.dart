@@ -6,10 +6,19 @@ import 'controller.dart';
 import 'home.dart';
 import 'reminders.dart';
 import 'repository.dart';
+import 'background_sync.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  final controller = TodoController(SqliteRepository());
+  final controller = TodoController(
+    SqliteRepository(),
+    onLocalChange: queueBackgroundSync,
+  );
+  unawaited(
+    initializeBackgroundSync().catchError((Object error) {
+      debugPrint('Background sync initialization failed: $error');
+    }),
+  );
   final reminders = TodoReminders(controller);
   unawaited(controller.initialize());
   unawaited(

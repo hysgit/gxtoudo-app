@@ -102,8 +102,10 @@ class TodoApi {
     int team,
     String note,
     String kind,
-    String name,
-  ) async {
+    String name, {
+    String? clientId,
+    String? checksum,
+  }) async {
     final request = http.MultipartRequest(
       'POST',
       Uri.parse('${serverOrigin(server)}/api/v7/media/upload'),
@@ -113,6 +115,8 @@ class TodoApi {
       'team_id': '$team',
       'note_id': note,
       'kind': kind,
+      'client_id': ?clientId,
+      'sha256': ?checksum,
     });
     request.files.add(
       await http.MultipartFile.fromPath('file', file.path, filename: name),

@@ -9,8 +9,10 @@ import 'repository.dart';
 import 'sync.dart';
 
 class TodoController extends ChangeNotifier {
-  TodoController(this.repository);
+  TodoController(this.repository, {this.automatic = true, this.onLocalChange});
   final LocalRepository repository;
+  final bool automatic;
+  final Future<void> Function()? onLocalChange;
   WorkspaceData data = WorkspaceData();
   Account? account;
   String server = defaultServer;
@@ -23,6 +25,8 @@ class TodoController extends ChangeNotifier {
   String? initializationError;
   Timer? _scheduledSync;
   bool _disposed = false;
+  int _dataVersion = 0;
+  int _retrySeconds = 10;
 
   Identity get identity => account?.identity ?? Identity.guest;
   TodoApi get api => TodoApi(server, account);
@@ -60,9 +64,17 @@ class TodoController extends ChangeNotifier {
       (data) => action(data, who),
     );
     if (identity.scope == who.scope) {
+      _dataVersion++;
       data = changed;
       _notify();
       _queueSync();
+      if (account != null && onLocalChange != null) {
+        unawaited(
+          onLocalChange!().catchError((Object error) {
+            debugPrint('Background sync scheduling failed: $error');
+          }),
+        );
+      }
     }
   }
 
@@ -156,32 +168,57 @@ class TodoController extends ChangeNotifier {
     syncStatus = '正在同步';
     _notify();
     try {
-      final count = await synchronize(repository, snapshot);
+      final count = await synchronize(
+        repository,
+        snapshot,
+        onChanged: () => _refresh(snapshot),
+      );
       if (account?.token == snapshot.token) {
-        final latest = await repository.read(snapshot.identity.scope);
-        if (account?.token == snapshot.token) {
-          data = latest;
-          if (!spaces.any((space) => space.id == team)) {
-            team = snapshot.personal;
-          }
-          syncStatus = '同步完成';
+        if (!spaces.any((space) => space.id == team)) {
+          team = snapshot.personal;
         }
+        syncStatus = '同步完成';
+        _retrySeconds = 10;
       }
       return count;
     } catch (error) {
       if (account?.token == snapshot.token) syncStatus = '同步失败 · $error';
+      _retrySeconds = (_retrySeconds * 2).clamp(10, 300);
       rethrow;
     } finally {
       _inFlight = null;
       _syncToken = null;
+      await _refresh(snapshot);
       _notify();
+      _queueSync(
+        delay:
+            syncStatus == '同步完成' &&
+                data.items.values.any((row) => row.pending != 0)
+            ? const Duration(milliseconds: 1250)
+            : Duration(seconds: syncStatus == '同步完成' ? 45 : _retrySeconds),
+      );
     }
   }
 
-  void _queueSync() {
-    if (account == null || _disposed) return;
+  Future<void> _refresh(Account snapshot) async {
+    final version = _dataVersion;
+    final latest = await repository.read(snapshot.identity.scope);
+    if (account?.token != snapshot.token || version != _dataVersion) return;
+    _dataVersion++;
+    data = latest;
+    _notify();
+  }
+
+  Future<void> resume() async {
+    final signedIn = account;
+    if (signedIn != null) await _refresh(signedIn);
+    _queueSync();
+  }
+
+  void _queueSync({Duration delay = const Duration(milliseconds: 1250)}) {
+    if (account == null || _disposed || !automatic) return;
     _scheduledSync?.cancel();
-    _scheduledSync = Timer(const Duration(milliseconds: 1250), () async {
+    _scheduledSync = Timer(delay, () async {
       if (syncing) {
         _queueSync();
         return;
