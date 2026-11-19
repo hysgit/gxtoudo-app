@@ -41,12 +41,25 @@ class _TaskEditorState extends State<TaskEditor> {
   late final children = TextEditingController(
     text: widget.task?.children.map((item) => item.name).join('\n'),
   );
-  late final projects = widget.controller.data
-      .list(widget.team, Tables.project)
-      .toList();
-  late final places = widget.controller.data
-      .list(widget.team, Tables.place)
-      .toList();
+  late int selectedTeam = widget.task?.team ?? widget.team;
+  List<Item> get projects =>
+      widget.controller.data.list(selectedTeam, Tables.project).toList();
+  List<Item> get places =>
+      widget.controller.data.list(selectedTeam, Tables.place).toList();
+  int get sourceTeam => widget.task?.team ?? widget.team;
+  bool get moving => widget.task != null && sourceTeam != selectedTeam;
+  Map<int, String> get spaceOptions {
+    final values = {
+      for (final space in widget.controller.spaces) space.id: space.name,
+    };
+    if (!values.containsKey(sourceTeam)) {
+      values[sourceTeam] = sourceTeam == widget.controller.identity.personal
+          ? '个人空间'
+          : '当前空间';
+    }
+    return values;
+  }
+
   late int rank = widget.task?.rank ?? 1;
   late String project = widget.task?.project ?? widget.project;
   late String place = widget.task?.place ?? '';
@@ -110,6 +123,14 @@ class _TaskEditorState extends State<TaskEditor> {
   Future<void> changeTime() async {
     final value = await showTimePicker(context: context, initialTime: time);
     if (value != null && mounted) setState(() => time = value);
+  }
+
+  void changeSpace(int value) {
+    setState(() {
+      selectedTeam = value;
+      if (!projects.any((item) => item.uid == project)) project = '';
+      if (!places.any((item) => item.uid == place)) place = '';
+    });
   }
 
   Future<void> changeEnd() async {
@@ -197,10 +218,32 @@ class _TaskEditorState extends State<TaskEditor> {
     setState(() => busy = true);
     try {
       if (lead >= 0 && start > 0) await widget.onReminder?.call();
+      final targetMembers = <int>{widget.controller.identity.user};
+      if (moving) {
+        final response = await widget.controller.api.call(
+          '/team/user',
+          method: 'GET',
+          values: {'team_id': selectedTeam},
+        );
+        targetMembers.addAll(
+          fields(response['data']).values
+              .whereType<Fields>()
+              .map((member) => integer(member['user_id']))
+              .where((user) => user > 0),
+        );
+      }
       await widget.controller.mutate(
-        (data, who) =>
-            saveTask(data, who, widget.team, widget.task?.uid, values),
+        (data, who) => saveTask(
+          data,
+          who,
+          sourceTeam,
+          widget.task?.uid,
+          values,
+          targetTeam: selectedTeam,
+          targetMembers: targetMembers,
+        ),
       );
+      if (moving) widget.controller.selectSpace(selectedTeam);
       if (lead >= 0 && start > 0) {
         try {
           await widget.onReminder?.call();
@@ -233,8 +276,10 @@ class _TaskEditorState extends State<TaskEditor> {
     String label,
     T value,
     Map<T, String> choices,
-    ValueChanged<T> change,
-  ) => DropdownButtonFormField<T>(
+    ValueChanged<T> change, {
+    Key? key,
+  }) => DropdownButtonFormField<T>(
+    key: key,
     initialValue: choices.containsKey(value) ? value : choices.keys.first,
     isExpanded: true,
     decoration: InputDecoration(labelText: label),
@@ -378,15 +423,29 @@ class _TaskEditorState extends State<TaskEditor> {
               for (final (index, label) in priorities.indexed) index + 1: label,
             }, (value) => rank = value),
             const SizedBox(height: 12),
-            dropdown('项目', project, {
-              '': '未设置项目',
-              for (final item in projects) item.uid: item.name,
-            }, (value) => project = value),
+            dropdown(
+              '项目',
+              project,
+              {'': '未设置项目', for (final item in projects) item.uid: item.name},
+              (value) => project = value,
+              key: ValueKey('project-$selectedTeam'),
+            ),
             const SizedBox(height: 12),
-            dropdown('地点', place, {
-              '': '未设置地点',
-              for (final item in places) item.uid: item.name,
-            }, (value) => place = value),
+            dropdown(
+              '地点',
+              place,
+              {'': '未设置地点', for (final item in places) item.uid: item.name},
+              (value) => place = value,
+              key: ValueKey('place-$selectedTeam'),
+            ),
+            const SizedBox(height: 12),
+            dropdown(
+              '空间',
+              selectedTeam,
+              spaceOptions,
+              changeSpace,
+              key: ValueKey('space-$selectedTeam'),
+            ),
             const SizedBox(height: 12),
             TextFormField(
               controller: tags,
@@ -433,15 +492,17 @@ class _TaskEditorState extends State<TaskEditor> {
                             child,
                             widget.controller.identity.user,
                           ),
-                          onChanged: (_) => widget.controller.mutate(
-                            (data, who) => toggleChild(
-                              data,
-                              who,
-                              widget.team,
-                              task.uid,
-                              child,
-                            ),
-                          ),
+                          onChanged: moving
+                              ? null
+                              : (_) => widget.controller.mutate(
+                                  (data, who) => toggleChild(
+                                    data,
+                                    who,
+                                    widget.team,
+                                    task.uid,
+                                    child,
+                                  ),
+                                ),
                         ),
                     ],
                   );
@@ -458,27 +519,33 @@ class _TaskEditorState extends State<TaskEditor> {
                 OutlinedButton.icon(
                   icon: const Icon(Icons.chat_bubble_outline),
                   label: const Text('评论'),
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => CommentsPage(widget.controller, task),
-                    ),
-                  ),
+                  onPressed: moving
+                      ? null
+                      : () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                CommentsPage(widget.controller, task),
+                          ),
+                        ),
                 ),
                 if (widget.team != widget.controller.identity.personal)
                   OutlinedButton.icon(
                     icon: const Icon(Icons.people_outline),
                     label: const Text('参与人'),
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => AssigneesPage(widget.controller, task),
-                      ),
-                    ),
+                    onPressed: moving
+                        ? null
+                        : () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  AssigneesPage(widget.controller, task),
+                            ),
+                          ),
                   ),
               ],
               TextButton(
-                onPressed: busy ? null : remove,
+                onPressed: busy || moving ? null : remove,
                 child: Text(
                   '删除任务',
                   style: TextStyle(color: Theme.of(context).colorScheme.error),

@@ -134,28 +134,74 @@ void saveTask(
   Identity who,
   int team,
   String? editing,
-  TaskChanges edit,
-) {
-  final existing = editing == null ? null : findTask(data, who, team, editing);
+  TaskChanges edit, {
+  int? targetTeam,
+  Set<int> targetMembers = const <int>{},
+}) {
+  final destination = targetTeam ?? team;
+  final sourceTeam = team;
+  final source = editing == null
+      ? null
+      : findTask(data, who, sourceTeam, editing);
+  if (editing != null && source == null) throw StateError('任务已删除');
+  final moving = source != null && sourceTeam != destination;
+  final targetId = moving ? newId(Tables.task) : editing ?? newId(Tables.task);
+  if (source != null && sourceTeam != destination) {
+    final related = [
+      source.row,
+      if (source.schedule != null) source.schedule!,
+      if (source.repeat != null) source.repeat!,
+      if (source.alert != null) source.alert!,
+      ...source.children,
+      ...source.tags,
+      ...source.checks,
+      ...source.subchecks,
+      ...source.members,
+      ...source.details,
+    ];
+    final movedIds = {for (final row in related) row.uid: newId(row.table)}
+      ..[source.row.uid] = targetId;
+    const memberOwnedTables = {Tables.check, Tables.subcheck, Tables.assignee};
+    for (final row in related) {
+      final owner = integer(row.data['user_id'], who.user);
+      if (row.table == Tables.alert && owner != who.user) continue;
+      if (memberOwnedTables.contains(row.table) &&
+          !targetMembers.contains(owner)) {
+        continue;
+      }
+      final copied = {...row.data};
+      for (final field in ['task_id', 'schedule_id', 'child_task_id']) {
+        final relatedId = movedIds[text(copied[field])];
+        if (relatedId != null) copied[field] = relatedId;
+      }
+      data.save(who, destination, row.table, movedIds[row.uid]!, {
+        ...copied,
+        'user_id': memberOwnedTables.contains(row.table) ? owner : who.user,
+      });
+    }
+  }
+  final id = targetId;
+  final existing = editing == null
+      ? null
+      : findTask(data, who, destination, id);
   if (editing != null && existing == null) throw StateError('任务已删除');
-  final id = editing ?? newId(Tables.task);
   final schedule = existing?.schedule?.uid ?? newId(Tables.schedule);
-  data.save(who, team, Tables.task, id, {
+  data.save(who, destination, Tables.task, id, {
     'name': edit.name,
     'rank': edit.rank,
-    'privacy': team == who.personal ? 6720 : 6728,
+    'privacy': destination == who.personal ? 6720 : 6728,
     'project_id': edit.project,
     'position_id': edit.place,
   });
   if (existing == null) {
-    data.save(who, team, Tables.assignee, newId(Tables.assignee), {
+    data.save(who, destination, Tables.assignee, newId(Tables.assignee), {
       'task_id': id,
       'role': 7680,
       'sequence': 0,
       'status': 0,
     });
   }
-  data.save(who, team, Tables.schedule, schedule, {
+  data.save(who, destination, Tables.schedule, schedule, {
     'task_id': id,
     'start_at': edit.start,
     'end_at': edit.end,
@@ -165,7 +211,7 @@ void saveTask(
   if (edit.repeat > 0 && edit.start > 0) {
     data.save(
       who,
-      team,
+      destination,
       Tables.repeat,
       existing?.repeat?.uid ?? newId(Tables.repeat),
       {
@@ -180,7 +226,7 @@ void saveTask(
   if (edit.alert >= 0 && edit.start > 0) {
     data.save(
       who,
-      team,
+      destination,
       Tables.alert,
       existing?.alert?.uid ?? newId(Tables.alert),
       {'task_id': id, 'schedule_id': schedule, 'alert_time': edit.alert},
@@ -197,7 +243,7 @@ void saveTask(
     } else {
       data.save(
         who,
-        team,
+        destination,
         Tables.details,
         detail?.uid ?? newId(Tables.details),
         {'task_id': id, 'type': entry.key, 'content': entry.value},
@@ -210,7 +256,7 @@ void saveTask(
     if (previous != null) children.remove(previous);
     data.save(
       who,
-      team,
+      destination,
       Tables.subtask,
       previous?.uid ?? newId(Tables.subtask),
       {'task_id': id, 'name': name, 'sequence': index},
@@ -224,17 +270,22 @@ void saveTask(
       data.remove(check);
     }
   }
-  final tags = data.list(team, Tables.tag).map((item) => item.name).toSet();
+  final tags = data
+      .list(destination, Tables.tag)
+      .map((item) => item.name)
+      .toSet();
   final mappings = {
     for (final item in existing?.tags ?? <Item>[])
       text(item.data['tag_name']): item,
   };
   for (final name in edit.tags.toSet()) {
     if (tags.add(name)) {
-      data.save(who, team, Tables.tag, newId(Tables.tag), {'name': name});
+      data.save(who, destination, Tables.tag, newId(Tables.tag), {
+        'name': name,
+      });
     }
     if (mappings.remove(name) == null) {
-      data.save(who, team, Tables.taskTag, newId(Tables.taskTag), {
+      data.save(who, destination, Tables.taskTag, newId(Tables.taskTag), {
         'task_id': id,
         'tag_name': name,
       });
@@ -242,6 +293,9 @@ void saveTask(
   }
   for (final removed in mappings.values) {
     data.remove(removed);
+  }
+  if (editing != null && sourceTeam != destination) {
+    deleteTask(data, sourceTeam, editing);
   }
 }
 
