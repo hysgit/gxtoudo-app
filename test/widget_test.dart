@@ -41,7 +41,10 @@ void main() {
     await tester.tap(find.text('新建便签'));
     await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextFormField, '便签标题'), '带雨伞');
-    await tester.tap(find.text('保存'));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(find.text('保存'), findsNothing);
+    await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('搜索'));
     await tester.pumpAndSettle();

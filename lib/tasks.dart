@@ -126,6 +126,29 @@ List<Task> taskList(WorkspaceData data, Identity who, int team) {
       .toList();
 }
 
+int compareTaskEntries((Task, int) a, (Task, int) b, int user) {
+  final aDone = a.$1.done(user, a.$2), bDone = b.$1.done(user, b.$2);
+  if (aDone != bDone) return aDone ? 1 : -1;
+  if (aDone) {
+    int completed((Task, int) entry) {
+      final check = entry.$1.check(user, entry.$2);
+      return integer(check?.data['check_at'], (check?.edited ?? 0) ~/ 1000);
+    }
+
+    final order = completed(b).compareTo(completed(a));
+    if (order != 0) return order;
+  }
+  final order = (a.$2 == 0 ? 1 << 62 : a.$2).compareTo(
+    b.$2 == 0 ? 1 << 62 : b.$2,
+  );
+  if (order != 0) return order;
+  if (!aDone) {
+    final priority = b.$1.rank.compareTo(a.$1.rank);
+    if (priority != 0) return priority;
+  }
+  return a.$1.uid.compareTo(b.$1.uid);
+}
+
 Task? findTask(WorkspaceData data, Identity who, int team, String id) =>
     taskList(data, who, team).where((task) => task.uid == id).firstOrNull;
 

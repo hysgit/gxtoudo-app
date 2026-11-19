@@ -54,13 +54,14 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
       leaving = false;
   int recordedSeconds = 0;
   String? editing;
-  Timer? timer;
+  Timer? timer, titleTimer;
+  Future<void> writes = Future.value();
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    title.addListener(markDirty);
+    title.addListener(titleChanged);
     input.addListener(markDirty);
   }
 
@@ -79,6 +80,17 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
     if (!dirty && mounted) setState(() => dirty = true);
   }
 
+  void titleChanged() {
+    markDirty();
+    titleTimer?.cancel();
+    if (title.text.trim().isNotEmpty) {
+      titleTimer = Timer(
+        const Duration(milliseconds: 350),
+        () => unawaited(persist()),
+      );
+    }
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
@@ -91,6 +103,7 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     timer?.cancel();
+    titleTimer?.cancel();
     unawaited(recorder.dispose());
     unawaited(speech.cancel());
     title.dispose();
@@ -154,6 +167,7 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
       };
       dirty = true;
     });
+    await persist();
     bottom();
   }
 
@@ -325,17 +339,21 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
     editing = null;
   }
 
-  Future<void> save({bool close = true}) async {
-    if (busy || recording) return;
-    if (title.text.trim().isEmpty) {
-      message(context, '请输入便签标题');
-      return;
-    }
-    setState(() => busy = true);
-    try {
-      await speech.stop();
-      appendText();
-      final values = messages();
+  Future<bool> persist() async {
+    titleTimer?.cancel();
+    final values = messages();
+    if (!hasSaved && title.text.trim().isEmpty && values.isEmpty) return true;
+    final savedTitle = title.text.trim().isEmpty
+        ? widget.controller.data
+                  .get(widget.team, Tables.note, uid)
+                  ?.data['title']
+                  ?.toString() ??
+              '新便签'
+        : title.text.trim();
+    final changed = {...overrides};
+    final media = {...localMedia};
+    final deleted = {...removed};
+    final operation = writes.then((_) async {
       await widget.controller.mutate((data, who) {
         if (who.scope != scope) throw const ApiFailure('账户已切换，请重新打开便签');
         if (hasSaved && data.get(widget.team, Tables.note, uid) == null) {
@@ -346,37 +364,64 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
           who,
           widget.team,
           uid,
-          title.text.trim(),
-          values,
-          localMedia,
-          removed: removed,
+          savedTitle,
+          values
+              .where(
+                (entry) =>
+                    changed.containsKey(text(entry['uid'])) ||
+                    !data.items.containsKey(
+                      itemKey(
+                        widget.team,
+                        Tables.noteEntry,
+                        text(entry['uid']),
+                      ),
+                    ),
+              )
+              .toList(),
+          media,
+          removed: deleted,
         );
       });
       if (!mounted) return;
       setState(() {
         hasSaved = true;
-        overrides.clear();
-        localMedia.clear();
-        removed.clear();
-        dirty = false;
-        leaving = close;
+        for (final entry in changed.entries) {
+          if (identical(overrides[entry.key], entry.value)) {
+            overrides.remove(entry.key);
+          }
+        }
+        for (final entry in media.entries) {
+          if (identical(localMedia[entry.key], entry.value)) {
+            localMedia.remove(entry.key);
+          }
+        }
+        removed.removeAll(deleted);
+        dirty =
+            input.text.trim().isNotEmpty ||
+            overrides.isNotEmpty ||
+            removed.isNotEmpty ||
+            (title.text.trim().isNotEmpty && title.text.trim() != savedTitle);
       });
-      if (close) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) Navigator.pop(context);
-        });
-      } else {
-        bottom();
-      }
+    });
+    writes = operation.catchError((Object _) {});
+    try {
+      await operation;
+      return true;
     } catch (error) {
       report(error);
+      return false;
+    }
+  }
+
+  Future<void> send() async {
+    if (busy || recording || listening || input.text.trim().isEmpty) return;
+    setState(() => busy = true);
+    try {
+      appendText();
+      await persist();
+      bottom();
     } finally {
-      if (mounted) {
-        setState(() {
-          busy = false;
-          listening = false;
-        });
-      }
+      if (mounted) setState(() => busy = false);
     }
   }
 
@@ -414,7 +459,7 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
         removed.add(text(entry['uid']));
         dirty = true;
       });
-      if (hasSaved) await save(close: false);
+      await persist();
     }
   }
 
@@ -423,7 +468,12 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
       message(context, '请先结束录音或等待本地保存完成');
       return;
     }
-    if (dirty && !await confirm(context, '放弃尚未保存的修改？', '已保存到本机的内容会保留。')) return;
+    if (!await persist()) return;
+    if (!mounted) return;
+    if (input.text.trim().isNotEmpty &&
+        !await confirm(context, '放弃未发送的文字？', '已经发送的内容会保留。')) {
+      return;
+    }
     if (!mounted) return;
     setState(() => leaving = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -434,8 +484,10 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
   Future<void> removeNote() async {
     if (!await confirm(context, '删除便签？', '便签及会话内容将被删除，随后自动同步。')) return;
     if (!mounted) return;
+    titleTimer?.cancel();
     setState(() => busy = true);
     try {
+      await writes;
       await widget.controller.mutate((data, _) {
         data.remove(data.get(widget.team, Tables.note, uid));
         for (final entry in data.list(widget.team, Tables.noteEntry).toList()) {
@@ -463,7 +515,9 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
     child: Scaffold(
       backgroundColor: const Color(0xffededed),
       appBar: AppBar(
-        title: Text(hasSaved ? title.text : '新建便签'),
+        title: Text(
+          hasSaved ? (title.text.trim().isEmpty ? '新便签' : title.text) : '新建便签',
+        ),
         actions: [
           if (hasSaved)
             IconButton(
@@ -471,13 +525,6 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
               onPressed: busy || recording ? null : removeNote,
               icon: const Icon(Icons.delete_outline),
             ),
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: FilledButton(
-              onPressed: busy || recording ? null : () => save(),
-              child: const Text('保存'),
-            ),
-          ),
         ],
       ),
       body: SafeArea(
@@ -593,7 +640,7 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
                         FilledButton(
                           onPressed: busy || recording || listening
                               ? null
-                              : () => save(close: false),
+                              : send,
                           child: const Text('发送'),
                         ),
                       ],

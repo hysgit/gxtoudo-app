@@ -648,6 +648,8 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
       (entry.$1.done(controller.identity.user, entry.$2) ? checked : pending)
           .add(entry);
     }
+    pending.sort((a, b) => compareTaskEntries(a, b, controller.identity.user));
+    checked.sort((a, b) => compareTaskEntries(a, b, controller.identity.user));
     return [
       for (final (label, rows) in [('待完成', pending), ('已完成', checked)])
         if (rows.isNotEmpty) ...[
