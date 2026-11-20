@@ -105,6 +105,7 @@ class TodoApi {
     String name, {
     String? clientId,
     String? checksum,
+    int parentTable = Tables.note,
   }) async {
     final request = http.MultipartRequest(
       'POST',
@@ -115,6 +116,7 @@ class TodoApi {
       'team_id': '$team',
       'note_id': note,
       'kind': kind,
+      'parent_table': '$parentTable',
       'client_id': ?clientId,
       'sha256': ?checksum,
     });

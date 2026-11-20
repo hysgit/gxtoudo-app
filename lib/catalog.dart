@@ -14,14 +14,6 @@ const projectColors = {
   '5d6b7f': '灰',
 };
 
-Color projectColor(Item item) {
-  final value = int.tryParse(
-    text(item.data['color']).replaceAll('#', ''),
-    radix: 16,
-  );
-  return value == null ? blue : Color(0xff000000 | value);
-}
-
 class CatalogEditor extends StatefulWidget {
   const CatalogEditor(
     this.controller,

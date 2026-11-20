@@ -26,6 +26,7 @@ class RetryApi extends TodoApi {
   final serverFiles = <String, Fields>{};
   final uploadedRows = <Fields>[];
   final entropies = <Fields>[];
+  final parentTables = <int>[];
   Future<void> Function()? duringUpload;
 
   @override
@@ -37,15 +38,21 @@ class RetryApi extends TodoApi {
     String name, {
     String? clientId,
     String? checksum,
+    int parentTable = Tables.note,
   }) async {
     uploads++;
+    parentTables.add(parentTable);
     final metadata = serverFiles.putIfAbsent(
       clientId!,
       () => {
         'id': 'remote-$clientId',
         'sha256': checksum,
         'kind': kind,
-        'content_type': kind == 'audio' ? 'audio/mp4' : 'image/png',
+        'content_type': kind == 'audio'
+            ? 'audio/mp4'
+            : kind == 'file'
+            ? 'application/octet-stream'
+            : 'image/png',
         'size': file.lengthSync(),
       },
     );

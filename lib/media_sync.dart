@@ -7,11 +7,20 @@ import 'repository.dart';
 Iterable<Item> mediaMessages(WorkspaceData data, Set<int> active) sync* {
   for (final note in data.items.values) {
     if (note.removed ||
-        note.table != Tables.note ||
+        (note.table != Tables.note && note.table != Tables.bill) ||
         !active.contains(note.team)) {
       continue;
     }
-    yield* noteMessages(data, note).where((row) => row.data['kind'] != 'text');
+    if (note.table == Tables.bill) {
+      yield* data
+          .list(note.team, Tables.billAttachment)
+          .where((row) => row.data['note_id'] == note.uid);
+    } else {
+      yield* noteMessages(
+        data,
+        note,
+      ).where((row) => row.data['kind'] != 'text');
+    }
   }
 }
 
@@ -41,9 +50,16 @@ Future<bool> uploadNoteFiles(
         message.team,
         text(message.data['note_id']),
         text(message.data['kind']),
-        message.data['kind'] == 'audio' ? '录音.m4a' : '原图',
+        message.data['kind'] == 'audio'
+            ? '录音.m4a'
+            : message.data['kind'] == 'file'
+            ? text(message.data['media_name'])
+            : '原图',
         clientId: id,
         checksum: text(local['sha256']),
+        parentTable: message.table == Tables.billAttachment
+            ? Tables.bill
+            : Tables.note,
       );
       if (remote['sha256'] != local['sha256'] ||
           integer(remote['size']) != integer(local['size'])) {
@@ -58,20 +74,14 @@ Future<bool> uploadNoteFiles(
         };
         data.media[id] = metadata;
         // A message removed while uploading must not be resurrected by the receipt.
-        final current = data.get(message.team, Tables.noteEntry, message.uid);
+        final current = data.get(message.team, message.table, message.uid);
         if (current == null || current.data['client_media_id'] != id) return;
-        data.save(
-          account.identity,
-          message.team,
-          Tables.noteEntry,
-          current.uid,
-          {
-            'media_id': remote['id'],
-            'content_type': remote['content_type'],
-            'size': remote['size'],
-            'sha256': remote['sha256'],
-          },
-        );
+        data.save(account.identity, message.team, message.table, current.uid, {
+          'media_id': remote['id'],
+          'content_type': remote['content_type'],
+          'size': remote['size'],
+          'sha256': remote['sha256'],
+        });
       });
     } catch (_) {
       failed = true;

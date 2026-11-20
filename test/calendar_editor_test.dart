@@ -130,6 +130,8 @@ void main() {
     phone(tester);
     await tester.pumpWidget(TodoApp(controller));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('时间轴'));
+    await tester.pumpAndSettle();
     final today = dayOnly(DateTime.now());
     expect(days(), findsNWidgets(7));
     await tester.drag(
@@ -153,6 +155,8 @@ void main() {
   testWidgets('月历按月切换，月末闰年正确，收起后回到所选周', (tester) async {
     phone(tester);
     await tester.pumpWidget(TodoApp(controller));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('时间轴'));
     await tester.pumpAndSettle();
     await chooseDate(tester, DateTime(2031, 12, 31));
     await tester.drag(
@@ -200,6 +204,8 @@ void main() {
     );
     await tester.pumpWidget(TodoApp(controller));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('时间轴'));
+    await tester.pumpAndSettle();
     await chooseDate(tester, DateTime(2032, 2, 9));
     await tester.drag(
       find.byKey(const ValueKey('timeline-calendar')),
@@ -233,6 +239,8 @@ void main() {
       }
     });
     await tester.pumpWidget(TodoApp(controller));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('时间轴'));
     await tester.pumpAndSettle();
     await tester.drag(
       find.byKey(const ValueKey('timeline-calendar')),
@@ -269,6 +277,8 @@ void main() {
           home: Workbench(controller),
         ),
       );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('时间轴'));
       await tester.pumpAndSettle();
       await tester.drag(
         find.byKey(const ValueKey('timeline-calendar')),

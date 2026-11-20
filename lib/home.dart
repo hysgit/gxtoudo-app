@@ -12,6 +12,8 @@ import 'schedule.dart';
 import 'task_editor.dart';
 import 'tasks.dart';
 import 'space_swipe.dart';
+import 'bill_editor.dart';
+import 'ledger_page.dart';
 
 class TodoApp extends StatelessWidget {
   const TodoApp(this.controller, {super.key, this.onReminder, this.onResume});
@@ -44,8 +46,8 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
   TodoController get controller => widget.controller;
   int tab = 0, filter = 0;
   DateTime selected = dayOnly(DateTime.now());
-  String project = '', tag = '', query = '';
-  bool archive = false, search = false;
+  String tag = '', query = '';
+  bool search = false;
   bool _calendarExpanded = false;
   double _calendarDrag = 0;
   int? noteYear;
@@ -70,6 +72,7 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       widget.onResume?.call();
       controller.resume();
+      if (mounted) setState(() {});
     }
   }
 
@@ -94,22 +97,19 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
       controller: controller,
       team: task?.team ?? controller.team,
       task: task,
-      project: project,
       day: day,
       onReminder: widget.onReminder,
     ),
   );
 
-  void editCatalog(int table, [Item? item]) => go(
-    table == Tables.note
-        ? NoteEditor(controller, controller.team, note: item)
-        : CatalogEditor(controller, controller.team, table, item: item),
-  );
+  void editNote(Item? note) =>
+      go(NoteEditor(controller, controller.team, note: note));
+  void editBill(Item? bill) =>
+      go(BillEditor(controller, controller.team, bill: bill));
 
   void selectTab(int value) => setState(() {
     tab = value;
     filter = 0;
-    project = '';
     tag = '';
     search = false;
     query = '';
@@ -122,7 +122,6 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
     final next = ((current < 0 ? 0 : current) + direction) % spaces.length;
     setState(() {
       filter = 0;
-      project = '';
       tag = '';
       search = false;
       query = '';
@@ -200,24 +199,30 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
             child: search
                 ? renderSearch(tasks)
                 : switch (tab) {
-                    0 => renderTimeline(tasks),
-                    1 => renderList(tasks),
-                    2 => renderProjects(),
+                    0 => renderList(tasks),
+                    1 => renderTimeline(tasks),
+                    2 => LedgerPage(
+                      controller,
+                      controller.team,
+                      onEdit: editBill,
+                    ),
                     _ => renderNotes(),
                   },
           ),
           floatingActionButton: FloatingActionButton(
             tooltip: switch (tab) {
-              2 => '新建项目',
+              2 => '新建账单',
               3 => '新建便签',
               _ => '新建任务',
             },
             child: const Icon(Icons.add),
             onPressed: () {
-              if (tab == 2 || tab == 3) {
-                editCatalog(tab == 2 ? Tables.project : Tables.note);
+              if (tab == 2) {
+                editBill(null);
+              } else if (tab == 3) {
+                editNote(null);
               } else {
-                editTask(null, day: tab == 0 ? selected : null);
+                editTask(null, day: tab == 1 ? selected : null);
               }
             },
           ),
@@ -226,18 +231,18 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
             onDestinationSelected: selectTab,
             destinations: const [
               NavigationDestination(
+                icon: Icon(Icons.checklist_outlined),
+                label: '任务',
+              ),
+              NavigationDestination(
                 icon: Icon(Icons.calendar_today_outlined),
                 selectedIcon: Icon(Icons.calendar_month),
                 label: '时间轴',
               ),
               NavigationDestination(
-                icon: Icon(Icons.checklist_outlined),
-                label: '任务',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.folder_outlined),
-                selectedIcon: Icon(Icons.folder),
-                label: '项目',
+                icon: Icon(Icons.account_balance_wallet_outlined),
+                selectedIcon: Icon(Icons.account_balance_wallet),
+                label: '记账',
               ),
               NavigationDestination(
                 icon: Icon(Icons.sticky_note_2_outlined),
@@ -306,7 +311,6 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
                 tab = 1;
                 filter = 0;
                 tag = value;
-                project = '';
                 search = false;
               });
             }
@@ -350,7 +354,6 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
       );
 
   bool matches(Task task) =>
-      (project.isEmpty || task.project == project) &&
       (tag.isEmpty || task.tags.any((item) => item.data['tag_name'] == tag));
 
   int timelineTime(Task task, DateTime day) {
@@ -633,22 +636,12 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
     return PageContent(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
       children: [
-        if (project.isNotEmpty || tag.isNotEmpty)
+        if (tag.isNotEmpty)
           Align(
             alignment: Alignment.centerLeft,
             child: InputChip(
-              label: Text(
-                project.isNotEmpty
-                    ? controller.data
-                              .get(controller.team, Tables.project, project)
-                              ?.name ??
-                          '项目'
-                    : '#$tag',
-              ),
-              onDeleted: () => setState(() {
-                project = '';
-                tag = '';
-              }),
+              label: Text('#$tag'),
+              onDeleted: () => setState(() => tag = ''),
             ),
           ),
         Wrap(
@@ -699,7 +692,7 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
     final done = task.done(controller.identity.user, occurrence);
     final when = occurrence == 0
         ? ''
-        : '${tab == 0 ? '' : '${dayLabel(localTime(occurrence))} '}${task.allDay ? '全天' : clock(localTime(occurrence))}';
+        : '${tab == 1 ? '' : '${dayLabel(localTime(occurrence))} '}${task.allDay ? '全天' : clock(localTime(occurrence))}';
     final meta = [
       if (when.isNotEmpty) when,
       if (task.repeat != null) repeatNames[repeatKind(task.repeat?.data)],
@@ -781,66 +774,6 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
           ),
         ),
       ),
-    );
-  }
-
-  Widget renderProjects() {
-    final projects = controller.data
-        .list(controller.team, Tables.project)
-        .where((item) => (integer(item.data['status']) != 0) == archive)
-        .toList();
-    return PageContent(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
-      children: [
-        SegmentedButton<bool>(
-          segments: const [
-            ButtonSegment(value: false, label: Text('活动项目')),
-            ButtonSegment(value: true, label: Text('已归档')),
-          ],
-          selected: {archive},
-          onSelectionChanged: (value) => setState(() => archive = value.single),
-        ),
-        const SizedBox(height: 14),
-        if (projects.isEmpty)
-          EmptyContent(
-            archive ? '没有归档项目' : '还没有项目',
-            icon: Icons.folder_outlined,
-          ),
-        for (final item in projects)
-          ListTile(
-            dense: true,
-            minTileHeight: 48,
-            visualDensity: VisualDensity.compact,
-            minVerticalPadding: 4,
-            minLeadingWidth: 24,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 2),
-            leading: Icon(
-              Icons.folder_outlined,
-              color: projectColor(item),
-              size: 20,
-            ),
-            title: Text(item.name, style: const TextStyle(fontSize: 16)),
-            subtitle: text(item.data['intro']).isEmpty
-                ? null
-                : Text(
-                    text(item.data['intro']),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12, color: muted),
-                  ),
-            onTap: () => setState(() {
-              tab = 1;
-              filter = 0;
-              project = item.uid;
-              tag = '';
-            }),
-            trailing: IconButton(
-              tooltip: '编辑项目',
-              onPressed: () => editCatalog(Tables.project, item),
-              icon: const Icon(Icons.edit_outlined, size: 20),
-            ),
-          ),
-      ],
     );
   }
 
@@ -952,7 +885,7 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
       noteCreatedLabel(note),
       style: const TextStyle(color: muted, fontSize: 12),
     ),
-    onTap: () => editCatalog(Tables.note, note),
+    onTap: () => editNote(note),
   );
 
   Widget renderSearch(List<Task> tasks) {
@@ -970,16 +903,21 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
             item,
           ).toLowerCase().contains(needle),
         );
-    final projects = controller.data
-        .list(controller.team, Tables.project)
-        .where((item) => item.name.toLowerCase().contains(needle));
+    final bills = controller.data
+        .list(controller.team, Tables.bill)
+        .where(
+          (item) =>
+              '${item.name} ${text(item.data['channel'])} ${text(item.data['party'])}'
+                  .toLowerCase()
+                  .contains(needle),
+        );
     return PageContent(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
       children: [
         TextFormField(
           autofocus: true,
           decoration: const InputDecoration(
-            labelText: '搜索任务、项目或便签',
+            labelText: '搜索任务、账单或便签',
             prefixIcon: Icon(Icons.search),
           ),
           onChanged: (value) => setState(() => query = value),
@@ -989,15 +927,8 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
           for (final task in results)
             taskCard(task, task.listTime(dayOnly(DateTime.now()))),
           for (final note in notes) noteCard(note),
-          for (final item in projects)
-            Card(
-              child: ListTile(
-                title: Text(item.name),
-                leading: const Icon(Icons.folder_outlined),
-                onTap: () => editCatalog(Tables.project, item),
-              ),
-            ),
-          if (results.isEmpty && notes.isEmpty && projects.isEmpty)
+          for (final bill in bills) BillTile(bill, onTap: () => editBill(bill)),
+          if (results.isEmpty && notes.isEmpty && bills.isEmpty)
             const EmptyContent('没有找到匹配内容', icon: Icons.search),
         ],
       ],

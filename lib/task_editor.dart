@@ -424,14 +424,6 @@ class _TaskEditorState extends State<TaskEditor> {
             }, (value) => rank = value),
             const SizedBox(height: 12),
             dropdown(
-              '项目',
-              project,
-              {'': '未设置项目', for (final item in projects) item.uid: item.name},
-              (value) => project = value,
-              key: ValueKey('project-$selectedTeam'),
-            ),
-            const SizedBox(height: 12),
-            dropdown(
               '地点',
               place,
               {'': '未设置地点', for (final item in places) item.uid: item.name},

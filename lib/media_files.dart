@@ -21,21 +21,32 @@ class MediaFiles {
     return value.create(recursive: true);
   }
 
-  static String extension(Fields media) =>
-      switch (text(media['content_type'])) {
-        'audio/wav' => '.wav',
-        'audio/ogg' => '.ogg',
-        'audio/mpeg' => '.mp3',
-        'audio/mp4' => '.m4a',
-        _ => media['kind'] == 'audio' ? '.m4a' : '.image',
-      };
+  static String extension(Fields media) {
+    if (media['kind'] == 'file') {
+      final match = RegExp(r'\.([a-zA-Z0-9]{1,12})$')
+          .firstMatch(text(media['media_name'] ?? media['name']));
+      return match == null ? '.bin' : '.${match[1]!.toLowerCase()}';
+    }
+    return switch (text(media['content_type'])) {
+      'audio/wav' => '.wav',
+      'audio/ogg' => '.ogg',
+      'audio/mpeg' => '.mp3',
+      'audio/mp4' => '.m4a',
+      _ => media['kind'] == 'audio' ? '.m4a' : '.image',
+    };
+  }
 
   Future<File> file(String id, Fields media) async {
     final key = sha256.convert(utf8.encode(id)).toString();
     return File('${(await directory).path}/$key${extension(media)}');
   }
 
-  Future<Fields> importFile(File source, String kind, {String? id}) async {
+  Future<Fields> importFile(
+    File source,
+    String kind, {
+    String? id,
+    String? name,
+  }) async {
     final size = await source.length();
     if (size <= 0 || size > 100 * 1024 * 1024) {
       throw const ApiFailure('单个文件应为 1 字节至 100 MB');
@@ -48,7 +59,12 @@ class MediaFiles {
       'size': size,
       'sha256': hash,
       'local_ready': 1,
-      'content_type': kind == 'audio' ? 'audio/mp4' : '',
+      'content_type': kind == 'audio'
+          ? 'audio/mp4'
+          : kind == 'file'
+          ? 'application/octet-stream'
+          : '',
+      if (kind == 'file') 'media_name': name ?? source.uri.pathSegments.last,
     };
     final target = await file(clientId, value);
     final temporary = File('${target.path}.${newId('copy')}.part');

@@ -15,7 +15,8 @@ Iterable<Item> _pending(WorkspaceData data, Set<int> active) sync* {
                 row.pending != 0 &&
                 active.contains(row.team) &&
                 (row.removed ||
-                    row.table != Tables.noteEntry ||
+                    (row.table != Tables.noteEntry &&
+                        row.table != Tables.billAttachment) ||
                     row.data['kind'] == 'text' ||
                     text(row.data['media_id']).isNotEmpty),
           )
@@ -115,6 +116,10 @@ Future<int> synchronize(
   final scope = account.identity.scope;
   final response = await api.call('/team/list', method: 'GET');
   var workspace = await store.change(scope, (workspace) {
+    if (workspace.cursors['ledger_version'] != 1) {
+      workspace.cursors.removeWhere((key, _) => key.startsWith('t'));
+      workspace.cursors['ledger_version'] = 1;
+    }
     // Older apps advanced their cursors past table 50 without understanding it.
     // Fetch a complete server snapshot once, retaining all pending local edits.
     if (workspace.cursors['note_conversation_version'] != 1) {

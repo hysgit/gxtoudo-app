@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:just_audio/just_audio.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:open_filex/open_filex.dart';
 
 import 'appearance.dart';
 import 'domain.dart';
@@ -88,9 +89,19 @@ class _NoteBubbleState extends State<NoteBubble> {
           }
         : null,
     icon: Icon(
-      widget.entry['kind'] == 'image' ? Icons.photo_outlined : Icons.mic_none,
+      widget.entry['kind'] == 'image'
+          ? Icons.photo_outlined
+          : widget.entry['kind'] == 'file'
+          ? Icons.attach_file
+          : Icons.mic_none,
     ),
-    label: Text(widget.entry['kind'] == 'image' ? '图片等待同步' : '语音等待同步'),
+    label: Text(
+      widget.entry['kind'] == 'image'
+          ? '图片等待同步'
+          : widget.entry['kind'] == 'file'
+          ? '文件等待同步'
+          : '语音等待同步',
+    ),
   );
 
   Widget content() {
@@ -108,6 +119,35 @@ class _NoteBubbleState extends State<NoteBubble> {
       builder: (context, state) {
         final file = state.data;
         if (file == null) return waiting();
+        if (widget.entry['kind'] == 'file') {
+          return SizedBox(
+            width: 260,
+            child: ListTile(
+              leading: const Icon(Icons.insert_drive_file_outlined),
+              title: Text(
+                text(widget.entry['media_name']).isEmpty
+                    ? '文件'
+                    : text(widget.entry['media_name'])
+                          .split(RegExp(r'[\\/]'))
+                          .last,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              onTap: !widget.enabled
+                  ? null
+                  : () async {
+                      try {
+                        final result = await OpenFilex.open(file.path);
+                        if (context.mounted && result.type != ResultType.done) {
+                          message(context, '未能打开文件，请安装支持此格式的应用');
+                        }
+                      } catch (_) {
+                        if (context.mounted) message(context, '未能打开文件，请重试');
+                      }
+                    },
+            ),
+          );
+        }
         if (widget.entry['kind'] == 'image') {
           return InkWell(
             onTap: () => Navigator.push(
@@ -141,7 +181,7 @@ class _NoteBubbleState extends State<NoteBubble> {
                 height: 200,
                 fit: BoxFit.contain,
                 cacheWidth: 720,
-                semanticLabel: '便签图片，点击查看原图',
+                semanticLabel: '图片，点击查看原图',
                 errorBuilder: (_, _, _) => const Padding(
                   padding: EdgeInsets.all(16),
                   child: Text('原图已在本机保存，系统暂不支持预览'),

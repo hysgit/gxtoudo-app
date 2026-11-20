@@ -5,6 +5,9 @@ typedef Fields = Map<String, dynamic>;
 abstract final class Tables {
   static const note = 49,
       noteEntry = 50,
+      bill = 51,
+      billAttachment = 52,
+      billOption = 53,
       tag = 59,
       place = 69,
       check = 76,
@@ -22,6 +25,9 @@ abstract final class Tables {
   static const all = {
     note,
     noteEntry,
+    bill,
+    billAttachment,
+    billOption,
     tag,
     place,
     check,

@@ -22,7 +22,7 @@ void main() {
     expect(find.text('提交新版本'), findsOneWidget);
     await tester.tap(find.byType(Checkbox).first);
     await tester.pumpAndSettle();
-    expect(find.textContaining('已完成'), findsOneWidget);
+    expect(find.text('已完成  1'), findsOneWidget);
     final restarted = TodoController(store);
     addTearDown(restarted.dispose);
     await restarted.initialize();
