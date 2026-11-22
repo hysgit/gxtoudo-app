@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gxtodo/domain.dart';
 import 'package:gxtodo/ledger.dart';
+import 'package:gxtodo/record_versions.dart';
 
 Fields bill(
   String name,
@@ -115,7 +116,10 @@ void main() {
     );
     expect(data.get(-1, Tables.billAttachment, 'concurrent'), isNotNull);
     saveBill(data, who, -1, 'bill', header, [], {}, removed: {'attachment'});
-    expect(data.get(-1, Tables.billAttachment, 'attachment'), isNull);
+    expect(attachmentIds(data, -1, Tables.billAttachment, 'bill'), [
+      'concurrent',
+    ]);
+    expect(data.get(-1, Tables.billAttachment, 'attachment'), isNotNull);
     expect(data.get(-1, Tables.billAttachment, 'concurrent'), isNotNull);
   });
 }

@@ -133,6 +133,9 @@ class TaskAlarmReceiver : BroadcastReceiver() {
 class AlarmRestoreReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action in setOf(Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED,
-                AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED)) AlarmStore.restore(context)
+                AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED)) {
+            TaskNotifications.restore(context)
+            AlarmStore.restore(context)
+        }
     }
 }

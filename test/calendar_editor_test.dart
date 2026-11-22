@@ -69,7 +69,7 @@ void main() {
 
   testWidgets('新建任务默认非全天并在开始时提醒，保存后保持该设置', (tester) async {
     phone(tester);
-    var permissionRequested = false;
+    String? permissionRequested;
     await tester.pumpWidget(
       MaterialApp(
         theme: todoTheme(),
@@ -77,8 +77,8 @@ void main() {
           controller: controller,
           team: -1,
           day: DateTime(2032, 1, 31),
-          onReminder: () async {
-            permissionRequested = true;
+          onReminder: (mode) async {
+            permissionRequested = mode;
           },
         ),
       ),
@@ -96,7 +96,7 @@ void main() {
     final task = taskList(controller.data, controller.identity, -1).single;
     expect(task.allDay, isFalse);
     expect(task.alert!.data['alert_time'], 0);
-    expect(permissionRequested, isTrue);
+    expect(permissionRequested, 'both');
   });
 
   testWidgets('编辑已有任务保留全天及无提醒设置', (tester) async {

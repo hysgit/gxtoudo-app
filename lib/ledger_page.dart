@@ -28,7 +28,9 @@ class BillTile extends StatelessWidget {
     );
     return ListTile(
       dense: true,
-      minVerticalPadding: 6,
+      minTileHeight: 44,
+      minVerticalPadding: 2,
+      visualDensity: const VisualDensity(vertical: -4),
       contentPadding: const EdgeInsets.symmetric(horizontal: 2),
       title: amount.length > 18
           ? Column(
@@ -79,21 +81,33 @@ class _LedgerPageState extends State<LedgerPage> {
   Widget summary(List<Item> rows) {
     final totals = BillTotals(rows);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SelectableText(
-            '总支出 ${totals.expense}',
-            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 4),
-          SelectableText(
-            '总收入 ${totals.income}',
-            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final (label, value) in [
+                ('总支出', totals.expense),
+                ('总收入', totals.income),
+              ])
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: SelectableText(
+                      '$label $value',
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
           if (totals.parties.isNotEmpty) ...[
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
             Wrap(
               spacing: 16,
               runSpacing: 4,
@@ -131,9 +145,10 @@ class _LedgerPageState extends State<LedgerPage> {
           ? <Item>[]
           : monthlyBills(widget.controller.data, widget.team, month);
       return PageContent(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 80),
         children: [
           SegmentedButton<bool>(
+            style: const ButtonStyle(visualDensity: VisualDensity.compact),
             segments: const [
               ButtonSegment(value: false, label: Text('本月')),
               ButtonSegment(value: true, label: Text('已归档')),
@@ -158,7 +173,7 @@ class _LedgerPageState extends State<LedgerPage> {
               )
             else
               Padding(
-                padding: const EdgeInsets.only(top: 12),
+                padding: const EdgeInsets.only(top: 6),
                 child: Text(
                   '${now.year}年 ${now.month}月',
                   style: const TextStyle(fontSize: 16),

@@ -14,11 +14,12 @@ import 'tasks.dart';
 import 'space_swipe.dart';
 import 'bill_editor.dart';
 import 'ledger_page.dart';
+import 'record_history_page.dart';
 
 class TodoApp extends StatelessWidget {
   const TodoApp(this.controller, {super.key, this.onReminder, this.onResume});
   final TodoController controller;
-  final Future<void> Function()? onReminder;
+  final Future<void> Function(String mode)? onReminder;
   final VoidCallback? onResume;
 
   @override
@@ -36,7 +37,7 @@ class TodoApp extends StatelessWidget {
 class Workbench extends StatefulWidget {
   const Workbench(this.controller, {super.key, this.onReminder, this.onResume});
   final TodoController controller;
-  final Future<void> Function()? onReminder;
+  final Future<void> Function(String mode)? onReminder;
   final VoidCallback? onResume;
   @override
   State<Workbench> createState() => _WorkbenchState();
@@ -319,6 +320,11 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
             Icons.bar_chart,
             '完成统计',
             () => go(StatisticsPage(controller, controller.team)),
+          ),
+          _drawerItem(
+            Icons.delete_outline,
+            '回收站',
+            () => go(RecycleBinPage(controller, controller.team)),
           ),
           _drawerItem(
             Icons.file_present_outlined,

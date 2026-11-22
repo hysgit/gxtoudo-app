@@ -46,12 +46,16 @@ List<TaskAlarm> alarmPlan(
   List<TaskAlarm> existing,
   DateTime now, {
   int limit = 60,
+  bool notifications = false,
 }) {
   final who = controller.identity;
   final tasks = <String, Task>{
     for (final space in controller.spaces)
       for (final task in taskList(controller.data, who, space.id))
-        if (task.alert != null && task.start > 0)
+        if (task.alert != null &&
+            task.start > 0 &&
+            reminderMode(task.alert) !=
+                (notifications ? 'alarm' : 'notification'))
           jsonEncode([who.scope, task.team, task.uid]): task,
   };
   final planned = <String, TaskAlarm>{};
@@ -116,16 +120,27 @@ class TodoReminders {
     queue();
   }
 
-  Future<void> request() async {
+  Future<void> request(String mode) async {
     if (!_started) throw StateError('闹钟尚未初始化，请重新打开 App');
+    final errors = <String>[];
+    for (final method in [
+      if (mode != 'alarm') 'authorizeNotifications',
+      if (mode != 'notification') 'authorize',
+    ]) {
+      try {
+        await _channel.invokeMethod<void>(method);
+      } on PlatformException catch (error) {
+        errors.add(error.message ?? '请检查系统提醒权限');
+      }
+    }
     try {
-      await _channel.invokeMethod<void>('authorize');
       _debounce?.cancel();
       _queued = _queued.catchError((Object _) {}).then((_) => _rebuild());
       await _queued;
     } on PlatformException catch (error) {
-      throw StateError(error.message ?? '请检查系统闹钟权限');
+      errors.add(error.message ?? '请检查系统提醒权限');
     }
+    if (errors.isNotEmpty) throw StateError(errors.join('；'));
   }
 
   void queue() {
@@ -140,20 +155,42 @@ class TodoReminders {
 
   Future<void> _rebuild() async {
     if (!controller.ready) return;
-    final status = await _channel.invokeMapMethod<String, dynamic>('status');
-    if (status?['authorized'] != true) {
-      if (status?['canRequest'] != true) return;
-      await _channel.invokeMethod<void>('authorize');
+    final now = DateTime.now();
+    PlatformException? notificationError;
+    try {
+      final queued =
+          await _channel.invokeListMethod<dynamic>('notificationSnapshot') ??
+          [];
+      final pending = queued
+          .whereType<Map<dynamic, dynamic>>()
+          .map(TaskAlarm.fromJson)
+          .toList();
+      final notifications = alarmPlan(
+        controller,
+        pending,
+        now,
+        notifications: true,
+      );
+      await _channel.invokeMethod<void>(
+        'synchronizeNotifications',
+        notifications.map((alarm) => alarm.toJson()).toList(),
+      );
+    } on PlatformException catch (error) {
+      notificationError = error;
     }
-    final values = await _channel.invokeListMethod<dynamic>('snapshot') ?? [];
-    final existing = values
-        .whereType<Map<dynamic, dynamic>>()
-        .map(TaskAlarm.fromJson)
-        .toList();
-    final plan = alarmPlan(controller, existing, DateTime.now());
-    await _channel.invokeMethod<void>(
-      'synchronize',
-      plan.map((alarm) => alarm.toJson()).toList(),
-    );
+    final status = await _channel.invokeMapMethod<String, dynamic>('status');
+    if (status?['authorized'] == true) {
+      final values = await _channel.invokeListMethod<dynamic>('snapshot') ?? [];
+      final existing = values
+          .whereType<Map<dynamic, dynamic>>()
+          .map(TaskAlarm.fromJson)
+          .toList();
+      final plan = alarmPlan(controller, existing, now);
+      await _channel.invokeMethod<void>(
+        'synchronize',
+        plan.map((alarm) => alarm.toJson()).toList(),
+      );
+    }
+    if (notificationError != null) throw notificationError;
   }
 }

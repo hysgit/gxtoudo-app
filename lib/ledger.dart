@@ -1,8 +1,10 @@
 import 'dart:math' as math;
 
 import 'domain.dart';
+import 'record_versions.dart';
 
 const billTypes = {'expense': '支出', 'income': '收入', 'transfer': '内转'};
+bool billIncluded(Fields bill) => integer(bill['include_in_totals'], 1) != 0;
 const paymentChannels = [
   '支付宝',
   '微信',
@@ -110,6 +112,7 @@ List<String> archivedBillMonths(WorkspaceData data, int team, DateTime now) {
 class BillTotals {
   BillTotals(Iterable<Item> rows) {
     for (final row in rows) {
+      if (!billIncluded(row.data)) continue;
       final amount = ExactAmount.parse(text(row.data['amount']));
       if (row.data['type'] == 'expense') {
         expense = expense + amount;
@@ -148,31 +151,91 @@ void saveBill(
   Map<String, Fields> media, {
   Set<String> removed = const {},
 }) {
+  final existing = data.get(team, Tables.bill, uid);
+  if (existing != null) captureBill(data, who, existing, onlyIfMissing: true);
   data.save(who, team, Tables.bill, uid, {
     ...changes,
     'amount': ExactAmount.parse(text(changes['amount'])).toString(),
   });
-  for (final attachment in attachments) {
-    final id = text(attachment['uid']);
-    final current = data.get(team, Tables.billAttachment, id);
-    if (data.items[itemKey(team, Tables.billAttachment, id)]?.removed == true) {
-      throw const FormatException('附件已删除，请重新打开账单');
-    }
-    final value = {...attachment, 'note_id': uid, 'parent_table': Tables.bill};
-    if (current != null &&
-        current.data['client_media_id'] == attachment['client_media_id'] &&
-        text(current.data['media_id']).isNotEmpty) {
-      for (final field in ['media_id', 'content_type', 'size', 'sha256']) {
-        value[field] = current.data[field];
-      }
-    }
-    data.save(who, team, Tables.billAttachment, id, value);
+  saveRecordAttachments(
+    data,
+    who,
+    team,
+    Tables.billAttachment,
+    uid,
+    attachments,
+    media,
+    removed,
+  );
+  captureBill(data, who, data.get(team, Tables.bill, uid)!);
+}
+
+const billVersionFields = [
+  'name',
+  'date',
+  'type',
+  'amount',
+  'channel',
+  'party',
+  'remark',
+  'location',
+  'latitude',
+  'longitude',
+  'include_in_totals',
+];
+
+void captureBill(
+  WorkspaceData data,
+  Identity who,
+  Item bill, {
+  bool onlyIfMissing = false,
+  String action = '保存',
+}) => captureVersion(
+  data,
+  who,
+  bill.team,
+  Tables.bill,
+  bill.uid,
+  {
+    for (final key in billVersionFields)
+      key: key == 'include_in_totals'
+          ? (billIncluded(bill.data) ? 1 : 0)
+          : text(bill.data[key]),
+    'attachments': attachmentIds(
+      data,
+      bill.team,
+      Tables.billAttachment,
+      bill.uid,
+    ),
+  },
+  onlyIfMissing: onlyIfMissing,
+  action: action,
+);
+
+void revertBill(WorkspaceData data, Identity who, Item row, Fields snapshot) {
+  final current = data.get(row.team, Tables.bill, row.uid);
+  if (current == null) throw const FormatException('账单已删除');
+  ExactAmount.parse(text(snapshot['amount']));
+  if (text(snapshot['name']).isEmpty ||
+      !billTypes.containsKey(snapshot['type'])) {
+    throw const FormatException('此账单版本不完整');
   }
-  for (final id in removed) {
-    final row = data.get(team, Tables.billAttachment, id);
-    if (row?.data['note_id'] == uid) data.remove(row);
-  }
-  for (final entry in media.entries) {
-    data.media[entry.key] = {...entry.value, ...?data.media[entry.key]};
-  }
+  captureBill(data, who, current, onlyIfMissing: true);
+  data.save(who, row.team, Tables.bill, row.uid, {
+    for (final key in billVersionFields) key: snapshot[key],
+  });
+  restoreAttachmentIds(
+    data,
+    who,
+    row.team,
+    Tables.billAttachment,
+    row.uid,
+    snapshot['attachments'] as List<Object?>,
+  );
+  captureBill(
+    data,
+    who,
+    data.get(row.team, Tables.bill, row.uid)!,
+    action: '还原版本',
+  );
 }

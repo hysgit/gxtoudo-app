@@ -33,9 +33,31 @@ import workmanager_apple
     channel.setMethodCallHandler { call, result in
       Task { @MainActor in
         if call.method == "initialize" {
-          // Remove reminders left behind by the previous notification implementation.
-          UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+          if !UserDefaults.standard.bool(forKey: "task_notifications_migrated") {
+            UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+            UserDefaults.standard.set(true, forKey: "task_notifications_migrated")
+          }
           result(nil)
+          return
+        }
+        if call.method == "notificationSnapshot" {
+          result([])
+          return
+        }
+        if call.method == "authorizeNotifications" || call.method == "synchronizeNotifications" {
+          do {
+            if call.method == "authorizeNotifications" {
+              guard try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) else {
+                result(FlutterError(code: "permission", message: "请在系统设置中允许高效Todo发送通知", details: nil))
+                return
+              }
+            } else {
+              try await self.synchronizeNotifications(call.arguments as? [[String: Any]] ?? [])
+            }
+            result(nil)
+          } catch {
+            result(FlutterError(code: "notification", message: error.localizedDescription, details: nil))
+          }
           return
         }
         guard #available(iOS 26.0, *) else {
@@ -66,6 +88,43 @@ import workmanager_apple
         }
       }
     }
+  }
+
+  override func userNotificationCenter(
+    _ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+  ) {
+    if notification.request.identifier.hasPrefix("task-notification-") {
+      completionHandler([.banner, .list, .sound])
+    } else {
+      super.userNotificationCenter(center, willPresent: notification, withCompletionHandler: completionHandler)
+    }
+  }
+
+  @MainActor
+  private func synchronizeNotifications(_ desired: [[String: Any]]) async throws {
+    let center = UNUserNotificationCenter.current()
+    let prefix = "task-notification-"
+    let existing = await center.pendingNotificationRequests().filter { $0.identifier.hasPrefix(prefix) }
+    let byID = Dictionary(uniqueKeysWithValues: existing.map { ($0.identifier, $0) })
+    var retained = Set<String>()
+    for value in desired {
+      guard let id = value["id"] as? String, let title = value["title"] as? String,
+            let at = value["at"] as? NSNumber else { continue }
+      let date = Date(timeIntervalSince1970: at.doubleValue)
+      guard date > Date() else { continue }
+      let identifier = prefix + SHA256.hash(data: Data(id.utf8)).map { String(format: "%02x", $0) }.joined()
+      retained.insert(identifier)
+      if byID[identifier]?.content.title == title { continue }
+      let content = UNMutableNotificationContent()
+      content.title = title
+      content.body = "任务提醒"
+      content.sound = .default
+      let components = Calendar.current.dateComponents(in: .current, from: date)
+      let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+      try await center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: trigger))
+    }
+    center.removePendingNotificationRequests(withIdentifiers: Set(byID.keys).subtracting(retained).map { $0 })
   }
 }
 

@@ -8,6 +8,9 @@ abstract final class Tables {
       bill = 51,
       billAttachment = 52,
       billOption = 53,
+      taskAttachment = 54,
+      taskVersion = 55,
+      billVersion = 56,
       tag = 59,
       place = 69,
       check = 76,
@@ -28,6 +31,9 @@ abstract final class Tables {
     bill,
     billAttachment,
     billOption,
+    taskAttachment,
+    taskVersion,
+    billVersion,
     tag,
     place,
     check,
@@ -43,6 +49,8 @@ abstract final class Tables {
     projectMember,
     project,
   };
+  static const recoverable = {task, bill};
+  static const attachments = {noteEntry, billAttachment, taskAttachment};
 }
 
 String text(Object? value) => value?.toString() ?? '';
@@ -153,7 +161,12 @@ class Item {
     'edit_time': edited,
     'entropy': revision,
     'data': removed
-        ? {'uid': uid, 'team_id': team, 'user_id': data['user_id']}
+        ? {
+            'uid': uid,
+            'team_id': team,
+            'user_id': data['user_id'],
+            if (Tables.recoverable.contains(table)) ...data,
+          }
         : data,
   };
 }
@@ -236,8 +249,24 @@ class WorkspaceData {
       data: data,
       edited: edited,
       revision: previous?.revision ?? 0,
-      pending: previous == null || previous.pending == 1 ? 1 : 2,
+      pending:
+          previous?.pending == 4 ||
+              (previous?.removed == true && Tables.recoverable.contains(table))
+          ? 4
+          : previous == null || previous.pending == 1
+          ? 1
+          : 2,
     );
+  }
+
+  void restore(Identity who, Item row) {
+    if (!Tables.recoverable.contains(row.table) ||
+        !row.removed ||
+        row.name.isEmpty ||
+        items[row.key] != row) {
+      throw const FormatException('这条记录已变化，请刷新后再恢复');
+    }
+    save(who, row.team, row.table, row.uid, {});
   }
 
   void remove(Item? row) {
@@ -254,8 +283,20 @@ class WorkspaceData {
   Fields exportPersonal(Identity who) => {
     'format': 'gxtodo-personal-v1',
     'items': items.values
-        .where((item) => !item.removed && item.team == who.personal)
-        .map((item) => {'table': item.table, 'data': item.data})
+        .where(
+          (item) =>
+              item.team == who.personal &&
+              (!item.removed ||
+                  Tables.recoverable.contains(item.table) &&
+                      item.name.isNotEmpty),
+        )
+        .map(
+          (item) => {
+            'table': item.table,
+            'data': item.data,
+            if (item.removed) 'deleted': true,
+          },
+        )
         .toList(),
     'media': Map.fromEntries(
       media.entries.where(
@@ -288,11 +329,17 @@ class WorkspaceData {
       }
       if (items.containsKey(itemKey(who.personal, table, uid))) continue;
       data.remove('entropy');
-      if (table == Tables.noteEntry &&
+      if (Tables.attachments.contains(table) &&
           fields(backup['media']).containsKey(text(data['client_media_id']))) {
         data['media_id'] = '';
       }
-      save(who, who.personal, table, uid, {...data, 'user_id': who.user});
+      final saved = save(who, who.personal, table, uid, {
+        ...data,
+        'user_id': who.user,
+      });
+      if (row['deleted'] == true && Tables.recoverable.contains(table)) {
+        remove(saved);
+      }
       added++;
     }
     for (final entry in fields(backup['media']).entries) {

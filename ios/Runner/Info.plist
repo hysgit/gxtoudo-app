@@ -12,11 +12,11 @@
 	<key>UIBackgroundModes</key>
 	<array><string>fetch</string><string>processing</string></array>
 	<key>NSCameraUsageDescription</key>
-	<string>用于拍照并将图片保存到便签。</string>
+	<string>用于拍照并将图片添加到任务、账单或便签。</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>用于选择原图并上传到便签。</string>
+	<string>用于选择原图并添加到任务、账单或便签。</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>用于录制便签语音和语音转文字输入。</string>
+	<string>用于录制任务、账单或便签的语音，以及便签语音转文字。</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>用于将你说的话转换为可编辑的便签文字。</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>

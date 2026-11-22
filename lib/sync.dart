@@ -15,8 +15,7 @@ Iterable<Item> _pending(WorkspaceData data, Set<int> active) sync* {
                 row.pending != 0 &&
                 active.contains(row.team) &&
                 (row.removed ||
-                    (row.table != Tables.noteEntry &&
-                        row.table != Tables.billAttachment) ||
+                    !Tables.attachments.contains(row.table) ||
                     row.data['kind'] == 'text' ||
                     text(row.data['media_id']).isNotEmpty),
           )
@@ -87,14 +86,18 @@ void applyPage(WorkspaceData current, List<Item> sent, Fields reply) {
     final edited = DateTime.tryParse(
       '${text(data['updated_at']).replaceFirst(' ', 'T')}Z',
     );
+    final removed = integer(update['edit_mode']) == 3;
+    final deletedAt = integer(data['deleted_at']);
     current.items[key] = Item(
       table: table,
       team: team,
       uid: uid,
       revision: revision,
       data: data,
-      edited: edited?.millisecondsSinceEpoch ?? installed?.edited ?? 0,
-      removed: integer(update['edit_mode']) == 3,
+      edited: removed && deletedAt > 0
+          ? deletedAt
+          : edited?.millisecondsSinceEpoch ?? installed?.edited ?? 0,
+      removed: removed,
     );
   }
   for (final marker in objects(reply['down_extra'])) {
@@ -116,9 +119,11 @@ Future<int> synchronize(
   final scope = account.identity.scope;
   final response = await api.call('/team/list', method: 'GET');
   var workspace = await store.change(scope, (workspace) {
-    if (workspace.cursors['ledger_version'] != 1) {
+    if (workspace.cursors['ledger_version'] != 1 ||
+        workspace.cursors['record_versions'] != 1) {
       workspace.cursors.removeWhere((key, _) => key.startsWith('t'));
       workspace.cursors['ledger_version'] = 1;
+      workspace.cursors['record_versions'] = 1;
     }
     // Older apps advanced their cursors past table 50 without understanding it.
     // Fetch a complete server snapshot once, retaining all pending local edits.
@@ -155,6 +160,7 @@ Future<int> synchronize(
         'entropy': {
           for (final team in active) 't$team': workspace.cursors['t$team'] ?? 0,
         },
+        'record_versions': 1,
         '_data': sent.map((item) => item.toUpload()).toList(),
       },
     );
@@ -181,7 +187,7 @@ Future<int> synchronize(
             workspace,
             active,
           ).any((row) => text(row.data['media_id']).isEmpty)) {
-        throw const ApiFailure('文字已同步，图片和录音将在网络恢复后自动重试');
+        throw const ApiFailure('文字已同步，附件将在网络恢复后自动重试');
       }
       return total;
     }

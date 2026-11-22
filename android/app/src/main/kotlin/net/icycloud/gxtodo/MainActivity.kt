@@ -13,6 +13,7 @@ import android.provider.Settings
 
 class MainActivity : FlutterActivity() {
     private var permissionResult: MethodChannel.Result? = null
+    private var requestAlarmPermission = false
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -22,10 +23,18 @@ class MainActivity : FlutterActivity() {
                 when (call.method) {
                     "initialize" -> {
                         AlarmStore.initialize(this)
+                        TaskNotifications.restore(this)
                         result.success(null)
                     }
                     "status" -> result.success(mapOf("authorized" to AlarmStore.authorized(this)))
-                    "authorize" -> authorize(result)
+                    "authorize" -> authorize(result, true)
+                    "authorizeNotifications" -> authorize(result, false)
+                    "notificationSnapshot" -> result.success(TaskNotifications.snapshot(this))
+                    "synchronizeNotifications" -> {
+                        @Suppress("UNCHECKED_CAST")
+                        TaskNotifications.synchronize(this, call.arguments as List<Map<String, Any>>)
+                        result.success(null)
+                    }
                     "snapshot" -> result.success(AlarmStore.snapshot(this))
                     "synchronize" -> {
                         @Suppress("UNCHECKED_CAST")
@@ -40,7 +49,7 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun authorize(result: MethodChannel.Result) {
+    private fun authorize(result: MethodChannel.Result, alarm: Boolean) {
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             if (permissionResult != null) {
@@ -48,22 +57,23 @@ class MainActivity : FlutterActivity() {
                 return
             }
             permissionResult = result
+            requestAlarmPermission = alarm
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 602)
             return
         }
         if (!getSystemService(NotificationManager::class.java).areNotificationsEnabled()) {
             startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
                 .putExtra(Settings.EXTRA_APP_PACKAGE, packageName))
-            result.error("permission", "请允许闹钟通知，返回后再次保存", null)
-        } else if (!AlarmStore.exactAllowed(this)) {
+            result.error("permission", "请允许高效Todo发送系统通知", null)
+        } else if (alarm && !AlarmStore.exactAllowed(this)) {
             startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
                 Uri.parse("package:$packageName")))
-            result.error("permission", "请允许“闹钟和提醒”，返回后再次保存", null)
-        } else if (Build.VERSION.SDK_INT >= 34 &&
+            result.error("permission", "请允许“闹钟和提醒”", null)
+        } else if (alarm && Build.VERSION.SDK_INT >= 34 &&
             !getSystemService(NotificationManager::class.java).canUseFullScreenIntent()) {
             startActivity(Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
                 Uri.parse("package:$packageName")))
-            result.error("permission", "请允许全屏闹钟，返回后再次保存", null)
+            result.error("permission", "请允许全屏闹钟", null)
         } else {
             result.success(null)
         }
@@ -74,8 +84,8 @@ class MainActivity : FlutterActivity() {
         if (code == 602) {
             val pending = permissionResult ?: return
             permissionResult = null
-            if (grants.firstOrNull() == PackageManager.PERMISSION_GRANTED) authorize(pending)
-            else pending.error("permission", "需要允许闹钟通知才能启用提醒", null)
+            if (grants.firstOrNull() == PackageManager.PERMISSION_GRANTED) authorize(pending, requestAlarmPermission)
+            else pending.error("permission", "需要允许系统通知才能显示提醒", null)
         }
     }
 

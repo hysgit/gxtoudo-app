@@ -1,11 +1,6 @@
 import 'dart:async';
-import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:record/record.dart';
 
 import 'appearance.dart';
 import 'api.dart';
@@ -14,7 +9,8 @@ import 'controller.dart';
 import 'domain.dart';
 import 'ledger.dart';
 import 'media_files.dart';
-import 'note_bubble.dart';
+import 'record_attachments.dart';
+import 'record_history_page.dart';
 
 class BillEditor extends StatefulWidget {
   const BillEditor(
@@ -34,7 +30,7 @@ class BillEditor extends StatefulWidget {
   State<BillEditor> createState() => _BillEditorState();
 }
 
-class _BillEditorState extends State<BillEditor> with WidgetsBindingObserver {
+class _BillEditorState extends State<BillEditor> {
   final form = GlobalKey<FormState>();
   late final uid = widget.bill?.uid ?? newId(Tables.bill);
   late final scope = widget.controller.identity.scope;
@@ -62,28 +58,18 @@ class _BillEditorState extends State<BillEditor> with WidgetsBindingObserver {
       : text(widget.bill!.data['party']);
   late String latitude = text(widget.bill?.data['latitude']),
       longitude = text(widget.bill?.data['longitude']);
-  late final attachments = widget.controller.data
-      .list(widget.team, Tables.billAttachment)
-      .where((row) => row.data['note_id'] == uid)
-      .map((row) => {...row.data, 'uid': row.uid})
-      .toList();
-  final localMedia = <String, Fields>{};
-  final removed = <String>{};
-  AudioRecorder? _recorder;
-  AudioRecorder get recorder => _recorder ??= AudioRecorder();
-  Timer? timer;
+  late bool included = billIncluded(widget.bill?.data ?? {});
+  final draft = AttachmentDraft();
   bool busy = false,
-      recording = false,
+      attaching = false,
       locating = false,
       dirty = false,
       leaving = false;
-  int duration = 0;
   Future<void>? locationWork;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     for (final input in [subject, amount, remark]) {
       input.addListener(changed);
     }
@@ -108,20 +94,10 @@ class _BillEditorState extends State<BillEditor> with WidgetsBindingObserver {
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    timer?.cancel();
-    if (_recorder != null) unawaited(_recorder!.dispose());
     for (final input in [subject, amount, remark, location]) {
       input.dispose();
     }
     super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused && recording) {
-      unawaited(stopRecording());
-    }
   }
 
   Future<void> refreshLocation() async {
@@ -182,125 +158,8 @@ class _BillEditorState extends State<BillEditor> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> addAttachment(
-    String path,
-    String kind,
-    String name, {
-    int durationMs = 0,
-  }) async {
-    final metadata = await files.importFile(File(path), kind, name: name);
-    if (!mounted) return;
-    final id = text(metadata['client_media_id']);
-    setState(() {
-      localMedia[id] = {
-        ...metadata,
-        'note_id': uid,
-        'team_id': widget.team,
-        'parent_table': Tables.bill,
-      };
-      attachments.add({
-        ...metadata,
-        'uid': newId(Tables.billAttachment),
-        'note_id': uid,
-        'parent_table': Tables.bill,
-        'media_id': '',
-        'media_name': name,
-        'entry_at': DateTime.now().millisecondsSinceEpoch,
-        'duration_ms': durationMs,
-      });
-      dirty = true;
-    });
-  }
-
-  Future<void> pick(String source) async {
-    setState(() => busy = true);
-    try {
-      if (source == 'camera') {
-        final value = await ImagePicker().pickImage(
-          source: ImageSource.camera,
-          imageQuality: 100,
-        );
-        if (value != null) await addAttachment(value.path, 'image', value.name);
-      } else {
-        final values = await FilePicker.platform.pickFiles(
-          type: source == 'image' ? FileType.image : FileType.any,
-          allowMultiple: true,
-          compressionQuality: 0,
-          withData: false,
-        );
-        for (final value in values?.files ?? <PlatformFile>[]) {
-          if (value.path != null) {
-            await addAttachment(
-              value.path!,
-              source == 'image' ? 'image' : 'file',
-              value.name,
-            );
-          }
-        }
-      }
-    } catch (error) {
-      report(error);
-    } finally {
-      if (mounted) setState(() => busy = false);
-    }
-  }
-
-  Future<void> record() async {
-    if (recording) return stopRecording();
-    setState(() => busy = true);
-    try {
-      if (!await recorder.hasPermission()) {
-        if (mounted) message(context, '请允许麦克风权限');
-        return;
-      }
-      final root = await getTemporaryDirectory();
-      await recorder.start(
-        const RecordConfig(encoder: AudioEncoder.aacLc, bitRate: 64000),
-        path: '${root.path}/${newId('bill-voice')}.m4a',
-      );
-      if (!mounted) return;
-      setState(() {
-        recording = true;
-        duration = 0;
-      });
-      timer = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (!mounted) return;
-        setState(() => duration++);
-        if (duration >= 3600) unawaited(stopRecording());
-      });
-    } catch (error) {
-      report(error);
-    } finally {
-      if (mounted) setState(() => busy = false);
-    }
-  }
-
-  Future<void> stopRecording() async {
-    if (!recording) return;
-    timer?.cancel();
-    setState(() {
-      recording = false;
-      busy = true;
-    });
-    try {
-      final path = await recorder.stop();
-      if (path != null) {
-        await addAttachment(
-          path,
-          'audio',
-          '录音.m4a',
-          durationMs: duration * 1000,
-        );
-      }
-    } catch (error) {
-      report(error);
-    } finally {
-      if (mounted) setState(() => busy = false);
-    }
-  }
-
   Future<void> save() async {
-    if (busy || recording || form.currentState?.validate() != true) return;
+    if (busy || attaching || form.currentState?.validate() != true) return;
     setState(() => busy = true);
     try {
       if (locating && locationWork != null) {
@@ -314,6 +173,7 @@ class _BillEditorState extends State<BillEditor> with WidgetsBindingObserver {
         'date': billDate(date),
         'type': type,
         'amount': amount.text,
+        'include_in_totals': included ? 1 : 0,
         'channel': channel,
         'party': party,
         'remark': remark.text,
@@ -333,9 +193,9 @@ class _BillEditorState extends State<BillEditor> with WidgetsBindingObserver {
           widget.team,
           uid,
           values,
-          attachments,
-          localMedia,
-          removed: removed,
+          draft.additions,
+          draft.media,
+          removed: draft.removed,
         );
       });
       if (mounted) {
@@ -352,17 +212,18 @@ class _BillEditorState extends State<BillEditor> with WidgetsBindingObserver {
   }
 
   Future<void> remove() async {
-    if (!await confirm(context, '删除账单？', '账单和附件记录将删除，并自动同步。') || !mounted) {
+    if (!await confirm(context, '删除账单？', '账单将移入回收站，可以恢复。') || !mounted) {
       return;
     }
     setState(() => busy = true);
     try {
-      await widget.controller.mutate((data, _) {
-        data.remove(data.get(widget.team, Tables.bill, uid));
-        for (final row
-            in data.list(widget.team, Tables.billAttachment).toList()) {
-          if (row.data['note_id'] == uid) data.remove(row);
-        }
+      await widget.controller.mutate((data, who) {
+        if (who.scope != scope) throw const FormatException('账户已切换');
+        final bill = data.get(widget.team, Tables.bill, uid);
+        if (bill == null) return;
+        captureBill(data, who, bill, onlyIfMissing: true);
+        captureBill(data, who, bill, action: '删除');
+        data.remove(bill);
       });
       if (mounted) {
         setState(() => leaving = true);
@@ -378,7 +239,7 @@ class _BillEditorState extends State<BillEditor> with WidgetsBindingObserver {
   }
 
   Future<void> leave() async {
-    if (busy || recording) return;
+    if (busy || attaching) return;
     if (dirty && !await confirm(context, '放弃未保存的账单修改？', '已经保存的账单会保留。')) return;
     if (mounted) {
       setState(() => leaving = true);
@@ -437,7 +298,7 @@ class _BillEditorState extends State<BillEditor> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) => PopScope(
-    canPop: leaving || (!dirty && !busy && !recording),
+    canPop: leaving || (!dirty && !busy && !attaching),
     onPopInvokedWithResult: (didPop, _) {
       if (!didPop) unawaited(leave());
     },
@@ -445,10 +306,41 @@ class _BillEditorState extends State<BillEditor> with WidgetsBindingObserver {
       appBar: AppBar(
         title: Text(widget.bill == null ? '新建账单' : '编辑账单'),
         actions: [
+          if (widget.bill case final bill?)
+            IconButton(
+              tooltip: '历史版本',
+              icon: const Icon(Icons.history),
+              onPressed: busy || attaching
+                  ? null
+                  : () async {
+                      if (dirty &&
+                          !await confirm(
+                            context,
+                            '查看历史版本？',
+                            '还原历史版本会替换当前未保存的修改。',
+                          )) {
+                        return;
+                      }
+                      if (!context.mounted) return;
+                      final restored = await Navigator.push<bool>(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              RecordHistoryPage(widget.controller, bill),
+                        ),
+                      );
+                      if (restored == true && mounted) {
+                        setState(() => leaving = true);
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (mounted) Navigator.pop(context);
+                        });
+                      }
+                    },
+            ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: FilledButton(
-              onPressed: busy || recording ? null : save,
+              onPressed: busy || attaching ? null : save,
               child: const Text('保存'),
             ),
           ),
@@ -516,6 +408,23 @@ class _BillEditorState extends State<BillEditor> with WidgetsBindingObserver {
               },
             ),
             const SizedBox(height: 12),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(
+                type == 'income'
+                    ? '计入总收入'
+                    : type == 'expense'
+                    ? '计入总支出'
+                    : '内转不计入收支',
+              ),
+              value: type == 'transfer' ? false : included,
+              onChanged: busy || type == 'transfer'
+                  ? null
+                  : (value) => setState(() {
+                      included = value ?? true;
+                      dirty = true;
+                    }),
+            ),
             choices('channel', channel),
             const SizedBox(height: 12),
             choices('party', party),
@@ -554,78 +463,22 @@ class _BillEditorState extends State<BillEditor> with WidgetsBindingObserver {
               maxLength: 12000,
               decoration: const InputDecoration(labelText: '备注'),
             ),
-            const Text('备注附件', style: TextStyle(color: muted)),
-            Wrap(
-              spacing: 8,
-              runSpacing: 4,
-              children: [
-                OutlinedButton.icon(
-                  onPressed: busy || recording ? null : () => pick('image'),
-                  icon: const Icon(Icons.photo_library_outlined),
-                  label: const Text('相册'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: busy || recording ? null : () => pick('camera'),
-                  icon: const Icon(Icons.camera_alt_outlined),
-                  label: const Text('拍照'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: busy ? null : record,
-                  icon: Icon(
-                    recording ? Icons.stop_circle_outlined : Icons.mic_none,
-                  ),
-                  label: Text(recording ? '结束录音 $duration 秒' : '录音'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: busy || recording ? null : () => pick('file'),
-                  icon: const Icon(Icons.attach_file),
-                  label: const Text('文件'),
-                ),
-              ],
+            RecordAttachments(
+              controller: widget.controller,
+              team: widget.team,
+              table: Tables.billAttachment,
+              parent: uid,
+              draft: draft,
+              files: files,
+              locked: busy,
+              onState: (active, changed) => setState(() {
+                attaching = active;
+                dirty = dirty || changed;
+              }),
             ),
-            const SizedBox(height: 12),
-            for (final attachment in attachments)
-              Column(
-                children: [
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: IconButton(
-                      tooltip: '移除附件',
-                      onPressed: busy || recording
-                          ? null
-                          : () => setState(() {
-                              removed.add(text(attachment['uid']));
-                              attachments.remove(attachment);
-                              dirty = true;
-                            }),
-                      icon: const Icon(Icons.close),
-                    ),
-                  ),
-                  NoteBubble(
-                    key: ValueKey(attachment['uid']),
-                    entry: attachment,
-                    media: {
-                      ...attachment,
-                      ...?localMedia[text(attachment['client_media_id'])],
-                      ...?widget.controller.data.media[text(
-                        attachment['client_media_id'],
-                      )],
-                    },
-                    files: files,
-                    scope: scope,
-                    enabled: !recording && !busy,
-                    onLongPress: () {},
-                    onRetry: () {
-                      unawaited(
-                        widget.controller.sync().catchError((Object _) => 0),
-                      );
-                    },
-                  ),
-                ],
-              ),
             if (widget.bill != null)
               TextButton(
-                onPressed: busy || recording ? null : remove,
+                onPressed: busy || attaching ? null : remove,
                 child: Text(
                   '删除账单',
                   style: TextStyle(color: Theme.of(context).colorScheme.error),

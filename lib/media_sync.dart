@@ -5,22 +5,28 @@ import 'notes.dart';
 import 'repository.dart';
 
 Iterable<Item> mediaMessages(WorkspaceData data, Set<int> active) sync* {
+  for (final row in data.items.values) {
+    if (row.removed || !active.contains(row.team)) continue;
+    final parentTable = switch (row.table) {
+      Tables.billAttachment => Tables.bill,
+      Tables.taskAttachment => Tables.task,
+      _ => 0,
+    };
+    if (parentTable == 0) continue;
+    final parent =
+        data.items[itemKey(row.team, parentTable, text(row.data['note_id']))];
+    if (parent != null &&
+        (!parent.removed || text(row.data['media_id']).isEmpty)) {
+      yield row;
+    }
+  }
   for (final note in data.items.values) {
     if (note.removed ||
-        (note.table != Tables.note && note.table != Tables.bill) ||
+        note.table != Tables.note ||
         !active.contains(note.team)) {
       continue;
     }
-    if (note.table == Tables.bill) {
-      yield* data
-          .list(note.team, Tables.billAttachment)
-          .where((row) => row.data['note_id'] == note.uid);
-    } else {
-      yield* noteMessages(
-        data,
-        note,
-      ).where((row) => row.data['kind'] != 'text');
-    }
+    yield* noteMessages(data, note).where((row) => row.data['kind'] != 'text');
   }
 }
 
@@ -57,9 +63,11 @@ Future<bool> uploadNoteFiles(
             : '原图',
         clientId: id,
         checksum: text(local['sha256']),
-        parentTable: message.table == Tables.billAttachment
-            ? Tables.bill
-            : Tables.note,
+        parentTable: switch (message.table) {
+          Tables.billAttachment => Tables.bill,
+          Tables.taskAttachment => Tables.task,
+          _ => Tables.note,
+        },
       );
       if (remote['sha256'] != local['sha256'] ||
           integer(remote['size']) != integer(local['size'])) {
@@ -102,6 +110,7 @@ Future<bool> downloadNoteFiles(
   final snapshot = await store.read(scope);
   for (final message in mediaMessages(snapshot, active)) {
     final metadata = message.data;
+    if (integer(metadata['detached']) == 1) continue;
     if (text(metadata['media_id']).isEmpty) continue;
     final id = text(metadata['client_media_id']);
     try {

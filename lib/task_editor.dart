@@ -4,6 +4,10 @@ import 'appearance.dart';
 import 'cloud_pages.dart';
 import 'controller.dart';
 import 'domain.dart';
+import 'media_files.dart';
+import 'record_attachments.dart';
+import 'record_history_page.dart';
+import 'record_versions.dart';
 import 'schedule.dart';
 import 'tasks.dart';
 
@@ -22,7 +26,7 @@ class TaskEditor extends StatefulWidget {
   final Task? task;
   final DateTime? day;
   final String project;
-  final Future<void> Function()? onReminder;
+  final Future<void> Function(String mode)? onReminder;
 
   @override
   State<TaskEditor> createState() => _TaskEditorState();
@@ -30,6 +34,10 @@ class TaskEditor extends StatefulWidget {
 
 class _TaskEditorState extends State<TaskEditor> {
   final form = GlobalKey<FormState>();
+  late final scope = widget.controller.identity.scope;
+  late final uid = widget.task?.uid ?? newId(Tables.task);
+  final draft = AttachmentDraft();
+  final mediaFiles = MediaFiles();
   late final name = TextEditingController(text: widget.task?.name);
   late final remark = TextEditingController(text: widget.task?.detail(2));
   late final review = TextEditingController(text: widget.task?.detail(1));
@@ -67,6 +75,7 @@ class _TaskEditorState extends State<TaskEditor> {
   late int lead = widget.task == null
       ? 0
       : integer(widget.task?.alert?.data['alert_time'], -1);
+  late String mode = reminderMode(widget.task?.alert);
   late bool allDay = widget.task?.allDay ?? false;
   late DateTime? date = (widget.task?.start ?? 0) > 0
       ? dayOnly(localTime(widget.task!.start))
@@ -81,7 +90,7 @@ class _TaskEditorState extends State<TaskEditor> {
       integer(widget.task?.repeat?.data['repeat_end']) > 0
       ? dayOnly(localTime(integer(widget.task!.repeat!.data['repeat_end'])))
       : null;
-  bool busy = false;
+  bool busy = false, attaching = false;
 
   @override
   void dispose() {
@@ -156,7 +165,7 @@ class _TaskEditorState extends State<TaskEditor> {
   }
 
   Future<void> save() async {
-    if (busy || form.currentState?.validate() != true) return;
+    if (busy || attaching || form.currentState?.validate() != true) return;
     final day = date;
     final start = day == null
         ? 0
@@ -202,6 +211,7 @@ class _TaskEditorState extends State<TaskEditor> {
       repeat: day == null ? 0 : repeat,
       repeatEnd: last,
       alert: lead,
+      reminderMode: mode,
       remark: remark.text,
       review: review.text,
       tags: tags.text
@@ -217,8 +227,10 @@ class _TaskEditorState extends State<TaskEditor> {
     );
     setState(() => busy = true);
     try {
-      if (lead >= 0 && start > 0) await widget.onReminder?.call();
       final targetMembers = <int>{widget.controller.identity.user};
+      final targetUid = moving ? newId(Tables.task) : uid;
+      var targetDraft = draft;
+      var sourceAttachments = <String>{};
       if (moving) {
         final response = await widget.controller.api.call(
           '/team/user',
@@ -231,9 +243,51 @@ class _TaskEditorState extends State<TaskEditor> {
               .map((member) => integer(member['user_id']))
               .where((user) => user > 0),
         );
+        targetDraft = AttachmentDraft();
+        final current = recordAttachments(
+          widget.controller.data,
+          sourceTeam,
+          Tables.taskAttachment,
+          uid,
+        ).toList();
+        sourceAttachments = current.map((row) => row.uid).toSet();
+        for (final entry in [
+          for (final row in current)
+            if (!draft.removed.contains(row.uid)) row.data,
+          ...draft.additions,
+        ]) {
+          final client = text(entry['client_media_id']);
+          final file = await mediaFiles.find(client, entry, scope);
+          if (file == null) throw const FormatException('请等任务附件同步到本机后再移动');
+          final kind = text(entry['kind']);
+          final name = text(entry['media_name']);
+          final copy = await mediaFiles.importFile(file, kind, name: name);
+          addDraftAttachment(
+            targetDraft,
+            copy,
+            selectedTeam,
+            Tables.taskAttachment,
+            targetUid,
+            name: name,
+            durationMs: integer(entry['duration_ms']),
+          );
+        }
       }
-      await widget.controller.mutate(
-        (data, who) => saveTask(
+      await widget.controller.mutate((data, who) {
+        if (who.scope != scope) throw const FormatException('账户已切换，请重新打开任务');
+        if (moving) {
+          final latest = attachmentIds(
+            data,
+            sourceTeam,
+            Tables.taskAttachment,
+            uid,
+          );
+          if (latest.length != sourceAttachments.length ||
+              !sourceAttachments.containsAll(latest)) {
+            throw const FormatException('附件已变化，请重新打开任务后再移动');
+          }
+        }
+        saveTask(
           data,
           who,
           sourceTeam,
@@ -241,14 +295,18 @@ class _TaskEditorState extends State<TaskEditor> {
           values,
           targetTeam: selectedTeam,
           targetMembers: targetMembers,
-        ),
-      );
+          newUid: targetUid,
+          attachments: targetDraft.additions,
+          media: targetDraft.media,
+          removedAttachments: targetDraft.removed,
+        );
+      });
       if (moving) widget.controller.selectSpace(selectedTeam);
       if (lead >= 0 && start > 0) {
         try {
-          await widget.onReminder?.call();
+          await widget.onReminder?.call(mode);
         } catch (error) {
-          if (mounted) message(context, '任务已保存，闹钟设置失败：$error');
+          if (mounted) message(context, '任务已保存，部分提醒未启用：$error');
         }
       }
       if (mounted) Navigator.pop(context);
@@ -260,12 +318,13 @@ class _TaskEditorState extends State<TaskEditor> {
   }
 
   Future<void> remove() async {
-    final accepted = await confirm(context, '删除任务？', '任务、子任务、提醒和完成记录将被删除。');
+    final accepted = await confirm(context, '删除任务？', '任务将移入回收站，可以恢复。');
     if (!accepted || !mounted) return;
     try {
-      await widget.controller.mutate(
-        (data, _) => deleteTask(data, widget.team, widget.task!.uid),
-      );
+      await widget.controller.mutate((data, who) {
+        if (who.scope != scope) throw const FormatException('账户已切换');
+        deleteTask(data, widget.team, widget.task!.uid, who: who);
+      });
       if (mounted) Navigator.pop(context);
     } catch (error) {
       if (mounted) message(context, error);
@@ -305,10 +364,29 @@ class _TaskEditorState extends State<TaskEditor> {
       appBar: AppBar(
         title: Text(task == null ? '新建任务' : '编辑任务'),
         actions: [
+          if (task != null)
+            IconButton(
+              tooltip: '历史版本',
+              icon: const Icon(Icons.history),
+              onPressed: busy || attaching
+                  ? null
+                  : () async {
+                      final restored = await Navigator.push<bool>(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              RecordHistoryPage(widget.controller, task.row),
+                        ),
+                      );
+                      if (restored == true && context.mounted) {
+                        Navigator.pop(context);
+                      }
+                    },
+            ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: FilledButton(
-              onPressed: busy ? null : save,
+              onPressed: busy || attaching ? null : save,
               child: const Text('保存'),
             ),
           ),
@@ -378,11 +456,19 @@ class _TaskEditorState extends State<TaskEditor> {
             ),
             const SizedBox(height: 14),
             if (date != null) ...[
-              dropdown('闹钟提醒', lead, {
+              dropdown('提醒时间', lead, {
                 ...alarms,
                 if (!alarms.containsKey(lead)) lead: '原提醒设置',
               }, (value) => lead = value),
-              if (lead >= 0)
+              if (lead >= 0) ...[
+                const SizedBox(height: 12),
+                dropdown('提醒方式', mode, {
+                  'both': '闹钟和系统推送',
+                  'alarm': '闹钟',
+                  'notification': '系统推送',
+                }, (value) => mode = value),
+              ],
+              if (lead >= 0 && mode != 'notification')
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
                   child: Text(
@@ -464,6 +550,16 @@ class _TaskEditorState extends State<TaskEditor> {
               maxLines: 6,
               maxLength: 8000,
             ),
+            RecordAttachments(
+              controller: widget.controller,
+              team: sourceTeam,
+              table: Tables.taskAttachment,
+              parent: uid,
+              draft: draft,
+              files: mediaFiles,
+              locked: busy,
+              onState: (active, _) => setState(() => attaching = active),
+            ),
             if (task != null) ...[
               ListenableBuilder(
                 listenable: widget.controller,
@@ -537,7 +633,7 @@ class _TaskEditorState extends State<TaskEditor> {
                   ),
               ],
               TextButton(
-                onPressed: busy || moving ? null : remove,
+                onPressed: busy || attaching || moving ? null : remove,
                 child: Text(
                   '删除任务',
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
