@@ -184,6 +184,7 @@ class TodoApi {
     String route, {
     String method = 'POST',
     Fields values = const {},
+    Duration timeout = const Duration(seconds: 16),
   }) async {
     if (server.isEmpty) throw const ApiFailure('请先设置服务端地址');
     final restMethod = method != 'POST';
@@ -208,7 +209,7 @@ class TodoApi {
         final response = await client
             .send(request)
             .then(http.Response.fromStream)
-            .timeout(const Duration(seconds: 16));
+            .timeout(timeout);
         if (response.statusCode != 200) {
           throw ApiFailure('服务端返回 HTTP ${response.statusCode}');
         }

@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 import 'appearance.dart';
 import 'controller.dart';
 import 'domain.dart';
+import 'price_login_page.dart';
 import 'schedule.dart';
 
 class PricePage extends StatefulWidget {
@@ -19,11 +20,49 @@ class _PricePageState extends State<PricePage> {
   bool loading = true, paired = false;
   String error = '';
   int seen = 0;
+  final loginDates = <String, int>{};
 
   @override
   void initState() {
     super.initState();
-    if (widget.controller.account != null) load();
+    if (widget.controller.account != null) {
+      load();
+      loadLogins();
+    }
+  }
+
+  Future<void> loadLogins() async {
+    final api = widget.controller.api;
+    for (final platform in ['jd', 'taobao']) {
+      try {
+        final result = await api.call(
+          '/price/login',
+          values: {'platform': platform, 'action': 'status'},
+        );
+        if (mounted) {
+          setState(
+            () => loginDates[platform] = integer(
+              fields(result['data'])['saved_at'],
+            ),
+          );
+        }
+      } catch (_) {
+        // Older servers can still use the external collector.
+      }
+    }
+  }
+
+  Future<void> platformLogin(String platform) async {
+    final saved = await Navigator.push<int>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PriceLoginPage(widget.controller.api, platform),
+      ),
+    );
+    if (mounted && saved != null) {
+      setState(() => loginDates[platform] = saved);
+      message(context, '会话已保存，实际价格仍需核验');
+    }
   }
 
   Future<void> load() async {
@@ -181,9 +220,20 @@ class _PricePageState extends State<PricePage> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(12, 6, 12, 18),
         children: [
+          for (final (platform, label) in [('jd', '京东'), ('taobao', '淘宝')])
+            ListTile(
+              dense: true,
+              leading: const Icon(Icons.storefront_outlined),
+              title: Text('$label登录'),
+              subtitle: (loginDates[platform] ?? 0) > 0
+                  ? Text('已保存会话 ${_date(loginDates[platform]!)}')
+                  : null,
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => platformLogin(platform),
+            ),
           ListTile(
             title: Text(paired ? '采集端已配对' : '配对采集端'),
-            subtitle: Text(seen == 0 ? '在电脑扫码登录京东、淘宝' : '最后连接 ${_date(seen)}'),
+            subtitle: Text(seen == 0 ? '连接外部采集端时使用' : '最后连接 ${_date(seen)}'),
             onTap: pair,
             trailing: PopupMenuButton<String>(
               tooltip: '采集端设置',
@@ -227,7 +277,7 @@ class _PricePageState extends State<PricePage> {
                 '${row['platform'] == 'jd' ? '京东' : '淘宝'} · ${row['variant']} · ${row['region']}\n'
                 '${switch (row['state']) {
                   'verified' => '已核验 ${_date(integer(row['observed_at']))}',
-                  'login_required' => '需要重新扫码登录',
+                  'login_required' => '需要重新登录平台',
                   'unavailable' => '暂时无法读取',
                   'needs_verification' => '需要核对商品或价格口径',
                   _ => '等待首次核验',

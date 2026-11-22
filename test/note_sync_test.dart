@@ -69,6 +69,7 @@ class RetryApi extends TodoApi {
     String route, {
     String method = 'POST',
     Fields values = const {},
+    Duration timeout = const Duration(seconds: 16),
   }) async {
     if (route == '/team/list') return {'data': []};
     entropies.add(fields(values['entropy']));
