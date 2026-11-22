@@ -32,27 +32,34 @@ class BillTile extends StatelessWidget {
       minVerticalPadding: 2,
       visualDensity: const VisualDensity(vertical: -4),
       contentPadding: const EdgeInsets.symmetric(horizontal: 2),
-      title: amount.length > 18
-          ? Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(date, style: const TextStyle(fontSize: 13)),
-                money,
-              ],
-            )
-          : Row(
-              children: [
-                Expanded(
-                  child: Text(date, style: const TextStyle(fontSize: 13)),
+      title: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          amount.length > 18
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(date, style: const TextStyle(fontSize: 13)),
+                    money,
+                  ],
+                )
+              : Row(
+                  children: [
+                    Expanded(
+                      child: Text(date, style: const TextStyle(fontSize: 13)),
+                    ),
+                    money,
+                  ],
                 ),
-                money,
-              ],
-            ),
-      subtitle: Text(
-        '${text(bill.data['channel'])} · ${text(bill.data['party'])} · ${bill.name}',
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontSize: 13, color: muted),
+          const SizedBox(height: 2),
+          Text(
+            '${text(bill.data['channel'])} · ${text(bill.data['party'])} · ${bill.name}',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 13, color: muted),
+          ),
+        ],
       ),
       onTap: onTap,
     );
