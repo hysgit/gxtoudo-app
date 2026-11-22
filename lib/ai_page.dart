@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'appearance.dart';
@@ -194,14 +195,6 @@ class _AiPageState extends State<AiPage> {
     if (mounted && chosen != null && chosen != thread) choose(chosen);
   }
 
-  List<Fields> refs(Fields row) {
-    try {
-      return objects(jsonDecode(text(row['refs']))).toList();
-    } on FormatException {
-      return [];
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     if (widget.controller.account == null) {
@@ -268,24 +261,9 @@ class _AiPageState extends State<AiPage> {
                     child: SelectableText(text(row['question'])),
                   ),
                 ),
-                if (row['state'] == 'done') ...[
-                  SelectableText(text(row['answer'])),
-                  if (refs(row).isNotEmpty)
-                    Wrap(
-                      spacing: 6,
-                      children: [
-                        for (final ref in refs(row))
-                          ActionChip(
-                            label: Text(
-                              text(ref['name']),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            onPressed: () => widget.openRecord(ref),
-                          ),
-                      ],
-                    ),
-                ] else if (row['state'] == 'failed')
+                if (row['state'] == 'done')
+                  AiAnswer(row, openRecord: widget.openRecord)
+                else if (row['state'] == 'failed')
                   Row(
                     children: [
                       Expanded(child: Text(text(row['error']))),
@@ -339,6 +317,57 @@ class _AiPageState extends State<AiPage> {
             ),
           ),
         ),
+      ],
+    );
+  }
+}
+
+class AiAnswer extends StatelessWidget {
+  const AiAnswer(this.turn, {required this.openRecord, super.key});
+  final Fields turn;
+  final ValueChanged<Fields> openRecord;
+
+  List<Fields> references() {
+    try {
+      return objects(jsonDecode(text(turn['refs'])))
+          .where(
+            (ref) =>
+                integer(ref['table']) != Tables.bill ||
+                ref['explicit_bill_detail'] == true,
+          )
+          .toList();
+    } on FormatException {
+      return [];
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final refs = references();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        MarkdownBody(
+          data: text(turn['answer']),
+          selectable: true,
+          softLineBreak: true,
+          imageBuilder: (_, _, alt) => Text(alt ?? '图片'),
+        ),
+        if (refs.isNotEmpty)
+          Wrap(
+            spacing: 6,
+            children: [
+              for (final ref in refs)
+                ActionChip(
+                  label: Text(
+                    text(ref['name']),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  onPressed: () => openRecord(ref),
+                ),
+            ],
+          ),
       ],
     );
   }
