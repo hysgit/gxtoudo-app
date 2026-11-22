@@ -108,6 +108,7 @@ import workmanager_apple
     let existing = await center.pendingNotificationRequests().filter { $0.identifier.hasPrefix(prefix) }
     let byID = Dictionary(uniqueKeysWithValues: existing.map { ($0.identifier, $0) })
     var retained = Set<String>()
+    var updates: [UNNotificationRequest] = []
     for value in desired {
       guard let id = value["id"] as? String, let title = value["title"] as? String,
             let at = value["at"] as? NSNumber else { continue }
@@ -122,9 +123,10 @@ import workmanager_apple
       content.sound = .default
       let components = Calendar.current.dateComponents(in: .current, from: date)
       let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
-      try await center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: trigger))
+      updates.append(UNNotificationRequest(identifier: identifier, content: content, trigger: trigger))
     }
     center.removePendingNotificationRequests(withIdentifiers: Set(byID.keys).subtracting(retained).map { $0 })
+    for request in updates { try await center.add(request) }
   }
 }
 
