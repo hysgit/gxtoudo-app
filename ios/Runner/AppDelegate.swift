@@ -10,6 +10,8 @@ import workmanager_apple
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var alarmChannel: FlutterMethodChannel?
+  private var pushToken: String?
+  private var pushRegistrationPending = false
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -33,32 +35,52 @@ import workmanager_apple
     channel.setMethodCallHandler { call, result in
       Task { @MainActor in
         if call.method == "initialize" {
-          if !UserDefaults.standard.bool(forKey: "task_notifications_migrated") {
-            UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
-            UserDefaults.standard.set(true, forKey: "task_notifications_migrated")
+          let center = UNUserNotificationCenter.current()
+          let legacy = await center.pendingNotificationRequests().filter {
+            $0.identifier.hasPrefix("task-notification-")
           }
+          center.removePendingNotificationRequests(withIdentifiers: legacy.map { $0.identifier })
           result(nil)
           return
         }
-        if call.method == "notificationSnapshot" {
-          result([])
-          return
-        }
-        if call.method == "authorizeNotifications" || call.method == "synchronizeNotifications" {
+        switch call.method {
+        case "authorizeNotifications":
           do {
-            if call.method == "authorizeNotifications" {
-              guard try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) else {
-                result(FlutterError(code: "permission", message: "请在系统设置中允许高效Todo发送通知", details: nil))
-                return
-              }
-            } else {
-              try await self.synchronizeNotifications(call.arguments as? [[String: Any]] ?? [])
+            guard try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) else {
+              result(FlutterError(code: "permission", message: "请在系统设置中允许高效Todo发送通知", details: nil))
+              return
             }
             result(nil)
           } catch {
             result(FlutterError(code: "notification", message: error.localizedDescription, details: nil))
           }
           return
+        case "pushInfo":
+          let settings = await UNUserNotificationCenter.current().notificationSettings()
+          guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else {
+            result(nil)
+            return
+          }
+          if let token = self.pushToken {
+            let environment = Bundle.main.object(forInfoDictionaryKey: "TodoPushEnvironment") as? String
+            result(["provider": environment == "development" ? "apns_sandbox" : "apns",
+                    "push_token": token, "timezone": TimeZone.current.identifier])
+          } else {
+            if !self.pushRegistrationPending {
+              self.pushRegistrationPending = true
+              UIApplication.shared.registerForRemoteNotifications()
+            }
+            result(nil)
+          }
+          return
+        case "disablePush":
+          self.pushToken = nil
+          self.pushRegistrationPending = false
+          UIApplication.shared.unregisterForRemoteNotifications()
+          result(nil)
+          return
+        default:
+          break
         }
         guard #available(iOS 26.0, *) else {
           if call.method == "status" { result(["authorized": false]); return }
@@ -94,39 +116,27 @@ import workmanager_apple
     _ center: UNUserNotificationCenter, willPresent notification: UNNotification,
     withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
   ) {
-    if notification.request.identifier.hasPrefix("task-notification-") {
+    if notification.request.trigger is UNPushNotificationTrigger {
       completionHandler([.banner, .list, .sound])
     } else {
       super.userNotificationCenter(center, willPresent: notification, withCompletionHandler: completionHandler)
     }
   }
 
-  @MainActor
-  private func synchronizeNotifications(_ desired: [[String: Any]]) async throws {
-    let center = UNUserNotificationCenter.current()
-    let prefix = "task-notification-"
-    let existing = await center.pendingNotificationRequests().filter { $0.identifier.hasPrefix(prefix) }
-    let byID = Dictionary(uniqueKeysWithValues: existing.map { ($0.identifier, $0) })
-    var retained = Set<String>()
-    var updates: [UNNotificationRequest] = []
-    for value in desired {
-      guard let id = value["id"] as? String, let title = value["title"] as? String,
-            let at = value["at"] as? NSNumber else { continue }
-      let date = Date(timeIntervalSince1970: at.doubleValue)
-      guard date > Date() else { continue }
-      let identifier = prefix + SHA256.hash(data: Data(id.utf8)).map { String(format: "%02x", $0) }.joined()
-      retained.insert(identifier)
-      if byID[identifier]?.content.title == title { continue }
-      let content = UNMutableNotificationContent()
-      content.title = title
-      content.body = "任务提醒"
-      content.sound = .default
-      let components = Calendar.current.dateComponents(in: .current, from: date)
-      let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
-      updates.append(UNNotificationRequest(identifier: identifier, content: content, trigger: trigger))
-    }
-    center.removePendingNotificationRequests(withIdentifiers: Set(byID.keys).subtracting(retained).map { $0 })
-    for request in updates { try await center.add(request) }
+  override func application(_ application: UIApplication,
+    didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+    super.application(application, didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)
+    guard pushRegistrationPending || pushToken != nil else { return }
+    pushRegistrationPending = false
+    pushToken = deviceToken.map { String(format: "%02x", $0) }.joined()
+    alarmChannel?.invokeMethod("pushTokenChanged", arguments: nil)
+  }
+
+  override func application(_ application: UIApplication,
+    didFailToRegisterForRemoteNotificationsWithError error: Error) {
+    super.application(application, didFailToRegisterForRemoteNotificationsWithError: error)
+    pushRegistrationPending = false
+    alarmChannel?.invokeMethod("pushRegistrationFailed", arguments: nil)
   }
 }
 

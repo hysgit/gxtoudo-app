@@ -23,7 +23,17 @@
             android:exported="false" android:showWhenLocked="true" android:turnScreenOn="true"
             android:excludeFromRecents="true" android:launchMode="singleTop" />
         <receiver android:name="net.icycloud.gxtodo.TaskAlarmReceiver" android:exported="false" />
-        <receiver android:name="net.icycloud.gxtodo.TaskNotificationReceiver" android:exported="false" />
+        <service android:name="net.icycloud.gxtodo.TodoFirebaseMessaging"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+        <meta-data android:name="firebase_messaging_auto_init_enabled" android:value="false" />
+        <meta-data android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_reminder" />
+        <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="task_remote_push" />
         <receiver android:name="net.icycloud.gxtodo.AlarmRestoreReceiver"
             android:exported="false">
             <intent-filter>

@@ -13,6 +13,7 @@ class TodoController extends ChangeNotifier {
   final LocalRepository repository;
   final bool automatic;
   final Future<void> Function()? onLocalChange;
+  Future<void> Function(Account)? onLogout;
   WorkspaceData data = WorkspaceData();
   Account? account;
   String server = defaultServer;
@@ -137,6 +138,8 @@ class TodoController extends ChangeNotifier {
 
   Future<void> logout() async {
     _scheduledSync?.cancel();
+    final previous = account;
+    if (previous != null) await onLogout?.call(previous);
     await repository.setSetting('account', null);
     account = null;
     data = await repository.read(Identity.guest.scope);

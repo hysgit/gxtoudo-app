@@ -1,8 +1,12 @@
+import groovy.json.JsonSlurper
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+fun Map<*, *>.section(key: String): Map<*, *> = get(key) as? Map<*, *> ?: emptyMap<Any, Any>()
 
 android {
     namespace = "net.icycloud.fdtodolist"
@@ -28,6 +32,19 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        val firebaseConfig = file("google-services.json")
+        if (firebaseConfig.isFile) {
+            val config = JsonSlurper().parse(firebaseConfig) as Map<*, *>
+            val project = config.section("project_info")
+            val client = (config["client"] as List<*>).filterIsInstance<Map<*, *>>().firstOrNull {
+                it.section("client_info").section("android_client_info")["package_name"] == applicationId
+            } ?: error("google-services.json 缺少 ${applicationId} 的 Android 配置")
+            val apiKey = (client["api_key"] as List<*>).filterIsInstance<Map<*, *>>().first()["current_key"]
+            resValue("string", "google_app_id", client.section("client_info")["mobilesdk_app_id"].toString())
+            resValue("string", "gcm_defaultSenderId", project["project_number"].toString())
+            resValue("string", "project_id", project["project_id"].toString())
+            resValue("string", "google_api_key", apiKey.toString())
+        }
     }
 
     val signingPath = System.getenv("GXTODO_KEYSTORE")
@@ -43,6 +60,7 @@ android {
 }
 
 dependencies {
+    implementation("com.google.firebase:firebase-messaging:24.1.2")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

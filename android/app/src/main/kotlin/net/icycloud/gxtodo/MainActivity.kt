@@ -10,6 +10,9 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import com.google.firebase.FirebaseApp
+import com.google.firebase.messaging.FirebaseMessaging
+import java.util.TimeZone
 
 class MainActivity : FlutterActivity() {
     private var permissionResult: MethodChannel.Result? = null
@@ -23,16 +26,19 @@ class MainActivity : FlutterActivity() {
                 when (call.method) {
                     "initialize" -> {
                         AlarmStore.initialize(this)
-                        TaskNotifications.restore(this)
+                        TaskNotifications.initialize(this)
                         result.success(null)
                     }
                     "status" -> result.success(mapOf("authorized" to AlarmStore.authorized(this)))
                     "authorize" -> authorize(result, true)
                     "authorizeNotifications" -> authorize(result, false)
-                    "notificationSnapshot" -> result.success(TaskNotifications.snapshot(this))
-                    "synchronizeNotifications" -> {
-                        @Suppress("UNCHECKED_CAST")
-                        TaskNotifications.synchronize(this, call.arguments as List<Map<String, Any>>)
+                    "pushInfo" -> pushInfo(result)
+                    "disablePush" -> {
+                        if (FirebaseApp.getApps(this).isNotEmpty()) {
+                            val messaging = FirebaseMessaging.getInstance()
+                            messaging.isAutoInitEnabled = false
+                            messaging.deleteToken()
+                        }
                         result.success(null)
                     }
                     "snapshot" -> result.success(AlarmStore.snapshot(this))
@@ -45,6 +51,27 @@ class MainActivity : FlutterActivity() {
                 }
             } catch (error: Exception) {
                 result.error("alarm", error.message ?: "闹钟设置失败", null)
+            }
+        }
+    }
+
+    private fun pushInfo(result: MethodChannel.Result) {
+        if (!getSystemService(NotificationManager::class.java).areNotificationsEnabled()) {
+            result.success(null)
+            return
+        }
+        if (FirebaseApp.getApps(this).isEmpty()) {
+            result.error("push_configuration", "此 Android 安装包还没有 Firebase 推送配置", null)
+            return
+        }
+        val messaging = FirebaseMessaging.getInstance()
+        messaging.isAutoInitEnabled = true
+        messaging.token.addOnCompleteListener { task ->
+            if (!task.isSuccessful || task.result.isNullOrBlank()) {
+                result.error("push_registration", "无法连接 Google 推送服务", null)
+            } else {
+                result.success(mapOf("provider" to "fcm", "push_token" to task.result,
+                    "timezone" to TimeZone.getDefault().id))
             }
         }
     }
