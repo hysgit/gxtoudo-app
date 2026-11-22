@@ -1,4 +1,4 @@
-"""Match Runner capabilities to the App Store provisioning profile in CI."""
+"""Enable APNs signing only when the selected App Store profile supports it."""
 import plistlib
 import re
 import subprocess
@@ -23,20 +23,17 @@ def main():
             if selected not in {value.get("Name"), value.get("UUID")}:
                 continue
             if entitlements.get("aps-environment") == "production":
-                print("App Store profile includes production APNs.")
-            else:
                 project = Path(__file__).with_name("Runner.xcodeproj") / "project.pbxproj"
                 source = project.read_text(encoding="utf-8")
                 source, count = re.subn(
-                    r"\s*SystemCapabilities = \{\s*com\.apple\.Push = \{ enabled = 1; \};\s*\};",
-                    "", source)
-                if count != 1:
-                    sys.exit("Could not identify the Runner push capability in the build checkout.")
-                source = source.replace('CODE_SIGN_ENTITLEMENTS = "$(GXTODO_IOS_ENTITLEMENTS)";',
-                                        'CODE_SIGN_ENTITLEMENTS = "";')
-                source = re.sub(r"GXTODO_APNS_ENVIRONMENT = (production|development);",
-                                "GXTODO_APNS_ENVIRONMENT = disabled;", source)
+                    r'(?m)^([ \t]*)GXTODO_APNS_ENVIRONMENT = "?disabled"?;',
+                    r"\1CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;\n\1GXTODO_APNS_ENVIRONMENT = production;",
+                    source)
+                if count != 3:
+                    sys.exit("Could not identify the Runner configurations for APNs signing.")
                 project.write_text(source, encoding="utf-8")
+                print("App Store profile includes production APNs.")
+            else:
                 print("App Store profile has no APNs entitlement; remote notifications are unavailable in this build.")
             return
     sys.exit("Could not match the App Store provisioning profile for the Todo app.")
