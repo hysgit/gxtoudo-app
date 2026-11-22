@@ -25,6 +25,13 @@ def main():
                 output.write_text("", encoding="utf-8")
                 print("App Store profile includes production APNs.")
             else:
+                # Xcode also checks the project capability independently of the entitlement file.
+                project = Path(__file__).with_name("Runner.xcodeproj") / "project.pbxproj"
+                source = project.read_text(encoding="utf-8")
+                marker = "com.apple.Push = { enabled = 1; };"
+                if source.count(marker) != 1:
+                    sys.exit("Could not identify the Runner push capability in the build checkout.")
+                project.write_text(source.replace(marker, "com.apple.Push = { enabled = 0; };"), encoding="utf-8")
                 output.write_text("GXTODO_IOS_ENTITLEMENTS =\nGXTODO_APNS_ENVIRONMENT = disabled\n", encoding="utf-8")
                 print("App Store profile has no APNs entitlement; remote notifications are unavailable in this build.")
             return
