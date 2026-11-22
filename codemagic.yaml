@@ -95,8 +95,7 @@ workflows:
         script: xcode-project use-profiles
       - name: Build App Store IPA
         script: |
-          export XCODE_XCCONFIG_FILE="$HOME/gxtodo-profile.xcconfig"
-          python3 ios/check_push_profile.py "$HOME/export_options.plist" "$XCODE_XCCONFIG_FILE" net.icycloud.fdtodolist
+          python3 ios/check_push_profile.py "$HOME/export_options.plist" net.icycloud.fdtodolist
           flutter build ipa --release \
             --build-number="$BUILD_NUMBER" \
             --dart-define=GXTODO_SERVER="$GXTODO_SERVER" \

@@ -1,12 +1,13 @@
-"""Write an Xcode override when the active App Store profile lacks APNs."""
+"""Match Runner capabilities to the App Store provisioning profile in CI."""
 import plistlib
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 
 def main():
-    export, output, bundle_id = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+    export, bundle_id = Path(sys.argv[1]), sys.argv[2]
     selected = plistlib.loads(export.read_bytes()).get("provisioningProfiles", {}).get(bundle_id)
     roots = (Path.home() / "Library/MobileDevice/Provisioning Profiles",
              Path.home() / "Library/Developer/Xcode/UserData/Provisioning Profiles")
@@ -22,17 +23,20 @@ def main():
             if selected not in {value.get("Name"), value.get("UUID")}:
                 continue
             if entitlements.get("aps-environment") == "production":
-                output.write_text("", encoding="utf-8")
                 print("App Store profile includes production APNs.")
             else:
-                # Xcode also checks the project capability independently of the entitlement file.
                 project = Path(__file__).with_name("Runner.xcodeproj") / "project.pbxproj"
                 source = project.read_text(encoding="utf-8")
-                marker = "com.apple.Push = { enabled = 1; };"
-                if source.count(marker) != 1:
+                source, count = re.subn(
+                    r"\s*SystemCapabilities = \{\s*com\.apple\.Push = \{ enabled = 1; \};\s*\};",
+                    "", source)
+                if count != 1:
                     sys.exit("Could not identify the Runner push capability in the build checkout.")
-                project.write_text(source.replace(marker, "com.apple.Push = { enabled = 0; };"), encoding="utf-8")
-                output.write_text("GXTODO_IOS_ENTITLEMENTS =\nGXTODO_APNS_ENVIRONMENT = disabled\n", encoding="utf-8")
+                source = source.replace('CODE_SIGN_ENTITLEMENTS = "$(GXTODO_IOS_ENTITLEMENTS)";',
+                                        'CODE_SIGN_ENTITLEMENTS = "";')
+                source = re.sub(r"GXTODO_APNS_ENVIRONMENT = (production|development);",
+                                "GXTODO_APNS_ENVIRONMENT = disabled;", source)
+                project.write_text(source, encoding="utf-8")
                 print("App Store profile has no APNs entitlement; remote notifications are unavailable in this build.")
             return
     sys.exit("Could not match the App Store provisioning profile for the Todo app.")
