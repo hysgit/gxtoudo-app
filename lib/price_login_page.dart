@@ -24,14 +24,16 @@ class _PriceLoginPageState extends State<PriceLoginPage> {
   int width = 390, height = 760;
   bool busy = false, typing = false, canSave = false, userAction = false;
   Timer? timer;
-  Offset dragStart = Offset.zero, dragEnd = Offset.zero;
+  final drag = <Fields>[];
+  final dragTime = Stopwatch();
+  Completer<void>? frameDone;
 
   @override
   void initState() {
     super.initState();
     unawaited(command('start'));
     timer = Timer.periodic(const Duration(seconds: 3), (_) {
-      if (session.isNotEmpty && !typing && error.isEmpty) {
+      if (session.isNotEmpty && !typing && drag.isEmpty && error.isEmpty) {
         unawaited(command('frame'));
       }
     });
@@ -50,8 +52,13 @@ class _PriceLoginPageState extends State<PriceLoginPage> {
       );
 
   Future<void> command(String action, [Fields values = const {}]) async {
+    if (action != 'frame' && frameDone != null) {
+      await frameDone!.future;
+      if (!mounted) return;
+    }
     if (busy || (action != 'start' && session.isEmpty)) return;
     busy = true;
+    if (action == 'frame') frameDone = Completer<void>();
     if (action != 'frame') setState(() => userAction = true);
     try {
       final result = fields((await send(action, session, values))['data']);
@@ -95,6 +102,10 @@ class _PriceLoginPageState extends State<PriceLoginPage> {
       });
     } finally {
       busy = false;
+      if (action == 'frame') {
+        frameDone?.complete();
+        frameDone = null;
+      }
       if (mounted && userAction) setState(() => userAction = false);
     }
   }
@@ -145,31 +156,39 @@ class _PriceLoginPageState extends State<PriceLoginPage> {
       };
       return Center(
         child: GestureDetector(
-          onTapUp: (detail) => command('tap', point(detail.localPosition)),
-          onPanDown: (detail) => dragStart = dragEnd = detail.localPosition,
-          onPanUpdate: (detail) => dragEnd = detail.localPosition,
-          onPanEnd: (_) {
-            final delta = dragEnd - dragStart;
-            if (delta.dx.abs() > delta.dy.abs() && delta.dx.abs() >= 8) {
-              final from = point(dragStart), to = point(dragEnd);
-              unawaited(
-                command('drag', {
-                  'from_x': from['x'],
-                  'from_y': from['y'],
-                  'to_x': to['x'],
-                  'to_y': to['y'],
-                }),
-              );
-            } else if (delta.dy.abs() >= 8) {
-              unawaited(
-                command('scroll', {
-                  ...point(dragStart),
-                  'dy': (-delta.dy * height / size.height).round().clamp(
-                    -850,
-                    850,
-                  ),
-                }),
-              );
+          onTapUp: (detail) {
+            drag.clear();
+            unawaited(command('tap', point(detail.localPosition)));
+          },
+          onPanDown: (detail) {
+            dragTime
+              ..reset()
+              ..start();
+            drag
+              ..clear()
+              ..add({...point(detail.localPosition), 'ms': 0});
+          },
+          onPanUpdate: (detail) {
+            if (drag.isEmpty) return;
+            final elapsed = dragTime.elapsedMilliseconds.clamp(0, 6000);
+            if (elapsed - integer(drag.last['ms']) < 16) return;
+            if (drag.length == 96) drag.removeAt(1);
+            drag.add({...point(detail.localPosition), 'ms': elapsed});
+          },
+          onPanCancel: drag.clear,
+          onPanEnd: (detail) {
+            if (drag.isNotEmpty) {
+              if (drag.length == 96) drag.removeAt(1);
+              drag.add({
+                ...point(detail.localPosition),
+                'ms': dragTime.elapsedMilliseconds.clamp(0, 6000),
+              });
+            }
+            final points = List<Fields>.of(drag);
+            drag.clear();
+            dragTime.stop();
+            if (points.length >= 2) {
+              unawaited(command('gesture', {'points': points}));
             }
           },
           child: Image.memory(

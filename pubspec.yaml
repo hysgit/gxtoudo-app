@@ -1,7 +1,7 @@
 name: gxtodo
 description: 高效Todo Android 与 iOS 客户端
 publish_to: none
-version: 7.7.2+124
+version: 7.7.3+125
 
 environment:
   sdk: '>=3.13.0 <4.0.0'

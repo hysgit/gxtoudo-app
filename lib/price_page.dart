@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 import 'appearance.dart';
 import 'controller.dart';
 import 'domain.dart';
+import 'price_cart_page.dart';
 import 'price_login_page.dart';
 import 'schedule.dart';
 
@@ -91,17 +92,19 @@ class _PricePageState extends State<PricePage> {
   }
 
   Future<void> create() async {
-    final values = await showDialog<Fields>(
-      context: context,
-      builder: (_) => const _WatchDialog(),
+    final added = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PriceCartPage(
+          widget.controller.api,
+          initialPlatform: (loginDates['taobao'] ?? 0) > (loginDates['jd'] ?? 0)
+              ? 'taobao'
+              : 'jd',
+          lastRegion: watches.isEmpty ? '' : text(watches.first['region']),
+        ),
+      ),
     );
-    if (values == null || !mounted) return;
-    try {
-      await widget.controller.api.call('/price/watch', values: values);
-      await load();
-    } catch (failure) {
-      if (mounted) message(context, failure);
-    }
+    if (mounted && added == true) await load();
   }
 
   Future<void> pair() async {
@@ -259,7 +262,7 @@ class _PricePageState extends State<PricePage> {
             child: FilledButton.tonalIcon(
               onPressed: create,
               icon: const Icon(Icons.add),
-              label: const Text('添加商品'),
+              label: const Text('从购物车添加'),
             ),
           ),
           if (error.isNotEmpty)
@@ -295,85 +298,4 @@ class _PricePageState extends State<PricePage> {
       ),
     );
   }
-}
-
-class _WatchDialog extends StatefulWidget {
-  const _WatchDialog();
-  @override
-  State<_WatchDialog> createState() => _WatchDialogState();
-}
-
-class _WatchDialogState extends State<_WatchDialog> {
-  final form = GlobalKey<FormState>();
-  final fields = {
-    'url': TextEditingController(),
-    'name': TextEditingController(),
-    'variant': TextEditingController(),
-    'quantity': TextEditingController(text: '1'),
-    'region': TextEditingController(),
-  };
-
-  @override
-  void dispose() {
-    for (final field in fields.values) {
-      field.dispose();
-    }
-    super.dispose();
-  }
-
-  Widget field(String key, String label, {int limit = 120}) => TextFormField(
-    controller: fields[key],
-    maxLength: limit,
-    keyboardType: switch (key) {
-      'url' => TextInputType.url,
-      'quantity' => TextInputType.number,
-      _ => TextInputType.text,
-    },
-    decoration: InputDecoration(labelText: label, counterText: ''),
-    validator: (value) {
-      if (text(value).trim().isEmpty) return '请输入$label';
-      if (key == 'quantity' && (integer(value) < 1 || integer(value) > 100)) {
-        return '数量须为 1 至 100';
-      }
-      return null;
-    },
-  );
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('添加追踪商品'),
-    content: Form(
-      key: form,
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            field('url', '商品详情链接', limit: 2048),
-            field('name', '商品名称'),
-            field('variant', '规格', limit: 150),
-            field('quantity', '数量', limit: 3),
-            field('region', '收货地区'),
-          ],
-        ),
-      ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('取消'),
-      ),
-      FilledButton(
-        onPressed: () {
-          if (form.currentState?.validate() != true) return;
-          Navigator.pop(context, {
-            for (final entry in fields.entries)
-              entry.key: entry.key == 'quantity'
-                  ? integer(entry.value.text)
-                  : entry.value.text.trim(),
-          });
-        },
-        child: const Text('添加'),
-      ),
-    ],
-  );
 }
