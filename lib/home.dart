@@ -15,6 +15,8 @@ import 'space_swipe.dart';
 import 'bill_editor.dart';
 import 'ledger_page.dart';
 import 'record_history_page.dart';
+import 'ai_page.dart';
+import 'price_page.dart';
 
 class TodoApp extends StatelessWidget {
   const TodoApp(this.controller, {super.key, this.onReminder, this.onResume});
@@ -104,9 +106,31 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
   );
 
   void editNote(Item? note) =>
-      go(NoteEditor(controller, controller.team, note: note));
+      go(NoteEditor(controller, note?.team ?? controller.team, note: note));
   void editBill(Item? bill) =>
-      go(BillEditor(controller, controller.team, bill: bill));
+      go(BillEditor(controller, bill?.team ?? controller.team, bill: bill));
+
+  void openAiRecord(Fields reference) {
+    final team = integer(reference['team_id']);
+    final table = integer(reference['table']);
+    final uid = text(reference['uid']);
+    final row = controller.spaces.any((space) => space.id == team)
+        ? controller.data.get(team, table, uid)
+        : null;
+    if (row == null) {
+      message(context, '本机没有这条记录，请同步后重试');
+      return;
+    }
+    switch (table) {
+      case Tables.task:
+        final task = findTask(controller.data, controller.identity, team, uid);
+        if (task != null) editTask(task);
+      case Tables.bill:
+        editBill(row);
+      case Tables.note:
+        editNote(row);
+    }
+  }
 
   void selectTab(int value) => setState(() {
     tab = value;
@@ -151,26 +175,34 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
         controller.identity,
         controller.team,
       );
+      final serviceTab = tab == 2 || tab == 5;
       return SpaceSwipe(
-        enabled: !drawerOpen && controller.spaces.length > 1,
+        enabled: !serviceTab && !drawerOpen && controller.spaces.length > 1,
         onSwitch: switchSpace,
         child: Scaffold(
           backgroundColor: Colors.white,
           appBar: AppBar(
             backgroundColor: Colors.white,
             title: Text(
-              controller.space.name.isEmpty ? '高效Todo' : controller.space.name,
+              tab == 2
+                  ? 'AI 对话'
+                  : tab == 5
+                  ? '追踪'
+                  : controller.space.name.isEmpty
+                  ? '高效Todo'
+                  : controller.space.name,
               style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
             ),
             actions: [
-              IconButton(
-                tooltip: search ? '关闭搜索' : '搜索',
-                icon: Icon(search ? Icons.close : Icons.search),
-                onPressed: () => setState(() {
-                  search = !search;
-                  query = '';
-                }),
-              ),
+              if (!serviceTab)
+                IconButton(
+                  tooltip: search ? '关闭搜索' : '搜索',
+                  icon: Icon(search ? Icons.close : Icons.search),
+                  onPressed: () => setState(() {
+                    search = !search;
+                    query = '';
+                  }),
+                ),
               Padding(
                 padding: const EdgeInsets.only(right: 8),
                 child: TextButton.icon(
@@ -196,37 +228,50 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
           drawerEnableOpenDragGesture: false,
           onDrawerChanged: (value) => setState(() => drawerOpen = value),
           body: KeyedSubtree(
-            key: ValueKey(controller.team),
+            key: ValueKey(
+              serviceTab ? controller.identity.scope : controller.team,
+            ),
             child: search
                 ? renderSearch(tasks)
                 : switch (tab) {
                     0 => renderList(tasks),
                     1 => renderTimeline(tasks),
-                    2 => LedgerPage(
+                    2 => AiPage(
+                      controller,
+                      onLogin: () => go(AccountPage(controller)),
+                      openRecord: openAiRecord,
+                    ),
+                    3 => LedgerPage(
                       controller,
                       controller.team,
                       onEdit: editBill,
                     ),
-                    _ => renderNotes(),
+                    4 => renderNotes(),
+                    _ => PricePage(
+                      controller,
+                      onLogin: () => go(AccountPage(controller)),
+                    ),
                   },
           ),
-          floatingActionButton: FloatingActionButton(
-            tooltip: switch (tab) {
-              2 => '新建账单',
-              3 => '新建便签',
-              _ => '新建任务',
-            },
-            child: const Icon(Icons.add),
-            onPressed: () {
-              if (tab == 2) {
-                editBill(null);
-              } else if (tab == 3) {
-                editNote(null);
-              } else {
-                editTask(null, day: tab == 1 ? selected : null);
-              }
-            },
-          ),
+          floatingActionButton: serviceTab
+              ? null
+              : FloatingActionButton(
+                  tooltip: switch (tab) {
+                    3 => '新建账单',
+                    4 => '新建便签',
+                    _ => '新建任务',
+                  },
+                  child: const Icon(Icons.add),
+                  onPressed: () {
+                    if (tab == 3) {
+                      editBill(null);
+                    } else if (tab == 4) {
+                      editNote(null);
+                    } else {
+                      editTask(null, day: tab == 1 ? selected : null);
+                    }
+                  },
+                ),
           bottomNavigationBar: NavigationBar(
             selectedIndex: tab,
             onDestinationSelected: selectTab,
@@ -241,6 +286,11 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
                 label: '时间轴',
               ),
               NavigationDestination(
+                icon: Icon(Icons.auto_awesome_outlined),
+                selectedIcon: Icon(Icons.auto_awesome),
+                label: 'AI',
+              ),
+              NavigationDestination(
                 icon: Icon(Icons.account_balance_wallet_outlined),
                 selectedIcon: Icon(Icons.account_balance_wallet),
                 label: '记账',
@@ -249,6 +299,7 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
                 icon: Icon(Icons.sticky_note_2_outlined),
                 label: '便签',
               ),
+              NavigationDestination(icon: Icon(Icons.show_chart), label: '追踪'),
             ],
           ),
         ),

@@ -386,7 +386,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
+				CODE_SIGN_ENTITLEMENTS = "$(GXTODO_IOS_ENTITLEMENTS)";
+				GXTODO_IOS_ENTITLEMENTS = Runner/Runner.entitlements;
 				GXTODO_APNS_ENVIRONMENT = production;
 				PRODUCT_BUNDLE_IDENTIFIER = net.icycloud.fdtodolist;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -569,7 +570,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
+				CODE_SIGN_ENTITLEMENTS = "$(GXTODO_IOS_ENTITLEMENTS)";
+				GXTODO_IOS_ENTITLEMENTS = Runner/Runner.entitlements;
 				GXTODO_APNS_ENVIRONMENT = development;
 				PRODUCT_BUNDLE_IDENTIFIER = net.icycloud.fdtodolist;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -593,7 +595,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
+				CODE_SIGN_ENTITLEMENTS = "$(GXTODO_IOS_ENTITLEMENTS)";
+				GXTODO_IOS_ENTITLEMENTS = Runner/Runner.entitlements;
 				GXTODO_APNS_ENVIRONMENT = production;
 				PRODUCT_BUNDLE_IDENTIFIER = net.icycloud.fdtodolist;
 				PRODUCT_NAME = "$(TARGET_NAME)";

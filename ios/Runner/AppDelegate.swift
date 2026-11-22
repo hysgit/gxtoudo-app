@@ -56,13 +56,17 @@ import workmanager_apple
           }
           return
         case "pushInfo":
+          let environment = Bundle.main.object(forInfoDictionaryKey: "TodoPushEnvironment") as? String
+          guard environment != "disabled" else {
+            result(FlutterError(code: "push_configuration", message: "此版本尚未启用 Apple 远程推送", details: nil))
+            return
+          }
           let settings = await UNUserNotificationCenter.current().notificationSettings()
           guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else {
             result(nil)
             return
           }
           if let token = self.pushToken {
-            let environment = Bundle.main.object(forInfoDictionaryKey: "TodoPushEnvironment") as? String
             result(["provider": environment == "development" ? "apns_sandbox" : "apns",
                     "push_token": token, "timezone": TimeZone.current.identifier])
           } else {
