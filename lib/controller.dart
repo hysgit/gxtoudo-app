@@ -9,9 +9,15 @@ import 'repository.dart';
 import 'sync.dart';
 
 class TodoController extends ChangeNotifier {
-  TodoController(this.repository, {this.automatic = true, this.onLocalChange});
+  TodoController(
+    this.repository, {
+    this.automatic = true,
+    this.onLocalChange,
+    this.desktop = false,
+  });
   final LocalRepository repository;
   final bool automatic;
+  final bool desktop;
   final Future<void> Function()? onLocalChange;
   Future<void> Function(Account)? onLogout;
   WorkspaceData data = WorkspaceData();
@@ -108,6 +114,15 @@ class TodoController extends ChangeNotifier {
       device,
       register,
     );
+    await _acceptLogin(origin, result);
+  }
+
+  Future<void> acceptDesktopLogin(String origin, Fields response) async {
+    if (account != null) throw const ApiFailure('当前桌面已登录');
+    await _acceptLogin(origin, signedInResponse(origin, response));
+  }
+
+  Future<void> _acceptLogin(String origin, SignedIn result) async {
     if (server != origin) throw const ApiFailure('服务端地址已变化，请重新登录');
     final updated = await repository.change(
       result.account.identity.scope,
@@ -140,6 +155,17 @@ class TodoController extends ChangeNotifier {
     _scheduledSync?.cancel();
     final previous = account;
     if (previous != null) await onLogout?.call(previous);
+    if (desktop && previous != null) {
+      try {
+        await TodoApi(previous.server, previous).call(
+          '/user/session',
+          method: 'DELETE',
+          timeout: const Duration(seconds: 5),
+        );
+      } on ApiFailure {
+        // An offline user can still clear the session from this device.
+      }
+    }
     await repository.setSetting('account', null);
     account = null;
     data = await repository.read(Identity.guest.scope);

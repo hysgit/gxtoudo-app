@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:material_ui/material_ui.dart';
 
@@ -13,6 +14,7 @@ void main() {
   final controller = TodoController(
     SqliteRepository(),
     onLocalChange: queueBackgroundSync,
+    desktop: Platform.isWindows,
   );
   unawaited(
     initializeBackgroundSync().catchError((Object error) {
@@ -29,7 +31,7 @@ void main() {
   runApp(
     TodoApp(
       controller,
-      onReminder: reminders.request,
+      onReminder: controller.desktop ? null : reminders.request,
       onResume: reminders.queue,
     ),
   );

@@ -1,6 +1,10 @@
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart'
+    show databaseFactoryFfi, sqfliteFfiInit;
 
 import 'domain.dart';
 
@@ -20,18 +24,26 @@ class SqliteRepository implements LocalRepository {
   late final Future<Database> _db = _open();
 
   Future<Database> _open() async {
-    return openDatabase(
-      '${await getDatabasesPath()}/gxtodo.db',
-      version: 1,
-      onConfigure: (db) => db.execute('PRAGMA busy_timeout=15000'),
-      onCreate: (db, _) async {
-        await db.execute(
-          'CREATE TABLE workspace(scope TEXT PRIMARY KEY, payload TEXT NOT NULL)',
-        );
-        await db.execute(
-          'CREATE TABLE setting(key TEXT PRIMARY KEY, value TEXT NOT NULL)',
-        );
-      },
+    if (Platform.isWindows) sqfliteFfiInit();
+    final factory = Platform.isWindows ? databaseFactoryFfi : databaseFactory;
+    final root = Platform.isWindows
+        ? (await getApplicationSupportDirectory()).path
+        : await factory.getDatabasesPath();
+    await Directory(root).create(recursive: true);
+    return factory.openDatabase(
+      '$root/gxtodo.db',
+      options: OpenDatabaseOptions(
+        version: 1,
+        onConfigure: (db) => db.execute('PRAGMA busy_timeout=15000'),
+        onCreate: (db, _) async {
+          await db.execute(
+            'CREATE TABLE workspace(scope TEXT PRIMARY KEY, payload TEXT NOT NULL)',
+          );
+          await db.execute(
+            'CREATE TABLE setting(key TEXT PRIMARY KEY, value TEXT NOT NULL)',
+          );
+        },
+      ),
     );
   }
 

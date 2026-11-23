@@ -249,6 +249,10 @@ Future<SignedIn> signIn(
     register ? '/user/base' : '/user/login',
     values: {'email': email, 'password': password, 'dev_id': device, 'p': 'A'},
   );
+  return signedInResponse(server, response);
+}
+
+SignedIn signedInResponse(String server, Fields response) {
   final spaces = objects(response['teamData'])
       .map(Space.fromJson)
       .where((space) => space.id > 0)

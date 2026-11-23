@@ -14,7 +14,7 @@
 	<key>UIBackgroundModes</key>
 	<array><string>fetch</string><string>processing</string></array>
 	<key>NSCameraUsageDescription</key>
-	<string>用于拍照并将图片添加到任务、账单或便签。</string>
+	<string>用于扫描桌面登录二维码，以及拍照添加任务、账单或便签附件。</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>用于选择原图并添加到任务、账单或便签。</string>
 	<key>NSMicrophoneUsageDescription</key>

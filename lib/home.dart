@@ -32,7 +32,13 @@ class TodoApp extends StatelessWidget {
     locale: const Locale('zh', 'CN'),
     localizationsDelegates: GlobalMaterialLocalizations.delegates,
     supportedLocales: const [Locale('zh', 'CN'), Locale('en')],
-    home: Workbench(controller, onReminder: onReminder, onResume: onResume),
+    home: ListenableBuilder(
+      listenable: controller,
+      builder: (context, _) =>
+          controller.desktop && controller.ready && controller.account == null
+          ? desktopAccountLogin(controller)
+          : Workbench(controller, onReminder: onReminder, onResume: onResume),
+    ),
   );
 }
 

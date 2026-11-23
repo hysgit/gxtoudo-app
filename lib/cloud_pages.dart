@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import 'appearance.dart';
 import 'controller.dart';
+import 'desktop_login.dart';
 import 'domain.dart';
 import 'tasks.dart';
 
@@ -38,6 +39,17 @@ Future<String?> askText(
     ),
   );
 }
+
+Widget desktopAccountLogin(TodoController controller) => DesktopLoginPage(
+  controller,
+  chooseServer: (context) => askText(
+    context,
+    '设置服务端',
+    'HTTPS 地址',
+    initial: controller.server,
+    limit: 255,
+  ),
+);
 
 class AccountPage extends StatefulWidget {
   const AccountPage(this.controller, {super.key});
@@ -83,6 +95,9 @@ class _AccountPageState extends State<AccountPage> {
       listenable: controller,
       builder: (context, _) {
         final account = controller.account;
+        if (controller.desktop && account == null) {
+          return desktopAccountLogin(controller);
+        }
         return Scaffold(
           appBar: AppBar(title: const Text('账户与服务端')),
           body: PageContent(
@@ -221,6 +236,17 @@ class _AccountPageState extends State<AccountPage> {
                     padding: const EdgeInsets.all(12),
                     child: Text(controller.syncStatus),
                   ),
+                if (Theme.of(context).platform == TargetPlatform.android ||
+                    Theme.of(context).platform == TargetPlatform.iOS)
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.qr_code_scanner),
+                    label: const Text('扫码登录桌面端'),
+                    onPressed: busy
+                        ? null
+                        : () => perform(
+                            () => scanDesktopLogin(context, controller),
+                          ),
+                  ),
                 OutlinedButton.icon(
                   icon: const Icon(Icons.sync),
                   label: const Text('立即同步'),
@@ -245,7 +271,14 @@ class _AccountPageState extends State<AccountPage> {
                   child: const Text('修改密码'),
                 ),
                 TextButton(
-                  onPressed: busy ? null : () => perform(controller.logout),
+                  onPressed: busy
+                      ? null
+                      : () => perform(() async {
+                          await controller.logout();
+                          if (controller.desktop && context.mounted) {
+                            Navigator.pop(context);
+                          }
+                        }),
                   child: const Text('退出登录'),
                 ),
                 TextButton(
