@@ -11,6 +11,7 @@ import 'package:speech_to_text/speech_to_text.dart';
 import 'api.dart';
 import 'appearance.dart';
 import 'controller.dart';
+import 'dictation.dart';
 import 'domain.dart';
 import 'media_files.dart';
 import 'note_bubble.dart';
@@ -266,7 +267,8 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
     }
     setState(() => busy = true);
     try {
-      final available = await speech.initialize(
+      final available = await prepareDictation(
+        speech,
         onStatus: (status) {
           if (mounted && (status == 'done' || status == 'notListening')) {
             setState(() => listening = false);

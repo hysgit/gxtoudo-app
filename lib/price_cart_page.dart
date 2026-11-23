@@ -62,11 +62,11 @@ class _PriceCartPageState extends State<PriceCartPage> {
   }
 
   Future<void> signIn() async {
-    await Navigator.push<int>(
+    final saved = await Navigator.push<int>(
       context,
       MaterialPageRoute(builder: (_) => PriceLoginPage(widget.api, platform)),
     );
-    if (mounted) await load();
+    if (mounted && saved != null) await load();
   }
 
   Future<void> add(Fields row) async {
@@ -140,7 +140,10 @@ class _PriceCartPageState extends State<PriceCartPage> {
                 children: [
                   Text(error),
                   if (needsLogin)
-                    TextButton(onPressed: signIn, child: const Text('登录平台')),
+                    TextButton(
+                      onPressed: signIn,
+                      child: Text(platform == 'jd' ? '登录京东' : '登录淘宝'),
+                    ),
                 ],
               ),
             )

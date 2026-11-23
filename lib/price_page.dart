@@ -5,7 +5,6 @@ import 'appearance.dart';
 import 'controller.dart';
 import 'domain.dart';
 import 'price_cart_page.dart';
-import 'price_login_page.dart';
 import 'schedule.dart';
 
 class PricePage extends StatefulWidget {
@@ -21,48 +20,12 @@ class _PricePageState extends State<PricePage> {
   bool loading = true, paired = false;
   String error = '';
   int seen = 0;
-  final loginDates = <String, int>{};
 
   @override
   void initState() {
     super.initState();
     if (widget.controller.account != null) {
       load();
-      loadLogins();
-    }
-  }
-
-  Future<void> loadLogins() async {
-    final api = widget.controller.api;
-    for (final platform in ['jd', 'taobao']) {
-      try {
-        final result = await api.call(
-          '/price/login',
-          values: {'platform': platform, 'action': 'status'},
-        );
-        if (mounted) {
-          setState(
-            () => loginDates[platform] = integer(
-              fields(result['data'])['saved_at'],
-            ),
-          );
-        }
-      } catch (_) {
-        // Older servers can still use the external collector.
-      }
-    }
-  }
-
-  Future<void> platformLogin(String platform) async {
-    final saved = await Navigator.push<int>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => PriceLoginPage(widget.controller.api, platform),
-      ),
-    );
-    if (mounted && saved != null) {
-      setState(() => loginDates[platform] = saved);
-      message(context, '会话已保存，实际价格仍需核验');
     }
   }
 
@@ -91,20 +54,20 @@ class _PricePageState extends State<PricePage> {
     }
   }
 
-  Future<void> create() async {
+  Future<void> openCart([String? platform]) async {
     final added = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (_) => PriceCartPage(
           widget.controller.api,
-          initialPlatform: (loginDates['taobao'] ?? 0) > (loginDates['jd'] ?? 0)
-              ? 'taobao'
-              : 'jd',
+          initialPlatform:
+              platform ??
+              (watches.isEmpty ? 'taobao' : text(watches.first['platform'])),
           lastRegion: watches.isEmpty ? '' : text(watches.first['region']),
         ),
       ),
     );
-    if (mounted && added == true) await load();
+    if (mounted && (added == true || platform != null)) await load();
   }
 
   Future<void> pair() async {
@@ -179,8 +142,16 @@ class _PricePageState extends State<PricePage> {
         (result) => [
           ListTile(
             title: Text(text(row['variant'])),
-            subtitle: Text('${row['quantity']} 件 · ${row['region']}'),
+            subtitle: Text(
+              '${row['quantity']} 件 · ${row['region']}'
+              '${_checked(row) > 0 ? '\n最近检查 ${_date(_checked(row))}' : ''}',
+            ),
           ),
+          if (row['state'] == 'login_required')
+            TextButton(
+              onPressed: () => openCart(text(row['platform'])),
+              child: const Text('到购物车重新登录'),
+            ),
           if (objects(result['data']).isEmpty) const EmptyContent('等待首次核验'),
           for (final point in objects(result['data']))
             ListTile(
@@ -198,6 +169,9 @@ class _PricePageState extends State<PricePage> {
     final date = localTime(epoch);
     return '${date.year}-${pad(date.month)}-${pad(date.day)} ${clock(date)}';
   }
+
+  static int _checked(Fields row) =>
+      integer(row['last_checked'] ?? row['observed_at']);
 
   static String _amount(Object? value) {
     final amount = text(value);
@@ -223,17 +197,6 @@ class _PricePageState extends State<PricePage> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(12, 6, 12, 18),
         children: [
-          for (final (platform, label) in [('jd', '京东'), ('taobao', '淘宝')])
-            ListTile(
-              dense: true,
-              leading: const Icon(Icons.storefront_outlined),
-              title: Text('$label登录'),
-              subtitle: (loginDates[platform] ?? 0) > 0
-                  ? Text('已保存会话 ${_date(loginDates[platform]!)}')
-                  : null,
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => platformLogin(platform),
-            ),
           ListTile(
             title: Text(paired ? '采集端已配对' : '配对采集端'),
             subtitle: Text(seen == 0 ? '连接外部采集端时使用' : '最后连接 ${_date(seen)}'),
@@ -260,7 +223,7 @@ class _PricePageState extends State<PricePage> {
           Align(
             alignment: Alignment.centerLeft,
             child: FilledButton.tonalIcon(
-              onPressed: create,
+              onPressed: () => openCart(),
               icon: const Icon(Icons.add),
               label: const Text('从购物车添加'),
             ),
@@ -279,10 +242,10 @@ class _PricePageState extends State<PricePage> {
               subtitle: Text(
                 '${row['platform'] == 'jd' ? '京东' : '淘宝'} · ${row['variant']} · ${row['region']}\n'
                 '${switch (row['state']) {
-                  'verified' => '已核验 ${_date(integer(row['observed_at']))}',
+                  'verified' => '${row['basis'] == 'cart_display' ? '购物车显示价' : '结算应付价'} · ${_date(_checked(row))}',
                   'login_required' => '需要重新登录平台',
                   'unavailable' => '暂时无法读取',
-                  'needs_verification' => '需要核对商品或价格口径',
+                  'needs_verification' => '暂无匹配的商品价格',
                   _ => '等待首次核验',
                 }}',
                 maxLines: 2,
