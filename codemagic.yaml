@@ -101,6 +101,9 @@ workflows:
             --build-number="$BUILD_NUMBER" \
             --dart-define=GXTODO_SERVER="$GXTODO_SERVER" \
             --export-options-plist="$HOME/export_options.plist"
+          set -- build/ios/ipa/*.ipa
+          test "$#" -eq 1
+          python3 ios/check_push_profile.py --ipa "$1" net.icycloud.fdtodolist
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/**/*.log
