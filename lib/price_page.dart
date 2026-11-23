@@ -253,9 +253,19 @@ class _PricePageState extends State<PricePage> {
               ),
               onTap: () => history(row),
               onLongPress: () => remove(row),
-              trailing: row['amount'] == null
-                  ? const Icon(Icons.chevron_right)
-                  : Text('¥${_amount(row['amount'])}'),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (row['amount'] != null) Text('¥${_amount(row['amount'])}'),
+                  PopupMenuButton<String>(
+                    tooltip: '追踪操作',
+                    onSelected: (_) => remove(row),
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(value: 'remove', child: Text('取消追踪')),
+                    ],
+                  ),
+                ],
+              ),
             ),
         ],
       ),
