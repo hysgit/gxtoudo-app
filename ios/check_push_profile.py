@@ -51,7 +51,7 @@ def verify_ipa(ipa, bundle_id):
         info = plistlib.loads((app / "Info.plist").read_bytes())
         if info.get("CFBundleIdentifier") != bundle_id or info.get("TodoPushEnvironment") != "production":
             sys.exit("The exported app does not identify itself as a production APNs build.")
-        signed = subprocess.check_output(["codesign", "-d", "--entitlements", "-", str(app)])
+        signed = subprocess.check_output(["codesign", "--display", "--entitlements", "-", "--xml", str(app)])
         if not signed or plistlib.loads(signed).get("aps-environment") != "production":
             sys.exit("The exported app signature lacks the production APNs entitlement.")
         print("Verified production APNs in the exported IPA signature.")
