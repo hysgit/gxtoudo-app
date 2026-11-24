@@ -119,10 +119,10 @@ Future<int> synchronize(
   final scope = account.identity.scope;
   final response = await api.call('/team/list', method: 'GET');
   var workspace = await store.change(scope, (workspace) {
-    if (workspace.cursors['ledger_version'] != 1 ||
+    if (workspace.cursors['ledger_version'] != 2 ||
         workspace.cursors['record_versions'] != 1) {
       workspace.cursors.removeWhere((key, _) => key.startsWith('t'));
-      workspace.cursors['ledger_version'] = 1;
+      workspace.cursors['ledger_version'] = 2;
       workspace.cursors['record_versions'] = 1;
     }
     // Older apps advanced their cursors past table 50 without understanding it.
@@ -161,6 +161,7 @@ Future<int> synchronize(
           for (final team in active) 't$team': workspace.cursors['t$team'] ?? 0,
         },
         'record_versions': 1,
+        'bill_currency': 1,
         '_data': sent.map((item) => item.toUpload()).toList(),
       },
     );

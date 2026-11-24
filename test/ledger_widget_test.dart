@@ -89,6 +89,23 @@ void main() {
           {},
         );
       }
+      saveBill(
+        data,
+        who,
+        -1,
+        'usd',
+        {
+          'name': '美元账单',
+          'date': '2026-10-02',
+          'type': 'expense',
+          'amount': '2.50',
+          'currency': 'USD',
+          'channel': '支付宝',
+          'party': '工行信用卡',
+        },
+        [],
+        {},
+      );
     });
     await tester.pumpWidget(
       MaterialApp(
@@ -114,9 +131,13 @@ void main() {
     expect(find.textContaining('账单 2026-10-01'), findsOneWidget);
     expect(find.text('总支出 0.10'), findsOneWidget);
     expect(find.text('总收入 0.00'), findsOneWidget);
+    expect(find.text('总支出 USD 2.50'), findsOneWidget);
+    expect(find.text('USD 2.50'), findsOneWidget);
     expect(find.textContaining('账单 2026-11-01'), findsNothing);
   });
-  testWidgets('账单默认今天，精确金额和定位结果先保存到本机', (tester) async {
+  testWidgets('窄屏账单默认人民币，选美元后精确金额和定位一同保存', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 780));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     final controller = TodoController(MemoryRepository());
     addTearDown(controller.dispose);
     await controller.initialize();
@@ -133,6 +154,11 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text(billDate(DateTime.now())), findsOneWidget);
+    expect(find.text('人民币'), findsOneWidget);
+    await tester.tap(find.text('人民币'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('美元').last);
+    await tester.pumpAndSettle();
     await tester.enterText(
       find.widgetWithText(TextFormField, '金额'),
       '9007199254740993.01',
@@ -143,6 +169,7 @@ void main() {
     await tester.pumpAndSettle();
     final row = controller.data.list(-1, Tables.bill).single;
     expect(row.data['amount'], '9007199254740993.01');
+    expect(row.data['currency'], 'USD');
     expect(row.data['location'], '测试地点');
     expect(row.data['latitude'], '30.1');
     expect(row.pending, 1);

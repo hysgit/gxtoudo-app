@@ -4,7 +4,34 @@ import 'domain.dart';
 import 'record_versions.dart';
 
 const billTypes = {'expense': '支出', 'income': '收入', 'transfer': '内转'};
-bool billIncluded(Fields bill) => integer(bill['include_in_totals'], 1) != 0;
+const defaultBillCurrency = 'CNY';
+const billCurrencies = {
+  defaultBillCurrency: '人民币',
+  'USD': '美元',
+  'HKD': '港币',
+  'EUR': '欧元',
+  'JPY': '日元',
+  'GBP': '英镑',
+  'SGD': '新加坡元',
+  'AUD': '澳元',
+  'CAD': '加元',
+  'KRW': '韩元',
+  'TWD': '新台币',
+};
+
+String billCurrency(Fields bill) => switch (text(bill['currency'])) {
+  '' => defaultBillCurrency,
+  final currency => currency,
+};
+
+String billAmountLabel(String amount, String currency) =>
+    currency == defaultBillCurrency ? amount : '$currency $amount';
+
+const _legacyTotalsField = 'legacy_include_in_totals';
+
+bool billIncluded(Fields bill) =>
+    integer(bill[_legacyTotalsField], integer(bill['include_in_totals'], 1)) !=
+    0;
 const paymentChannels = [
   '支付宝',
   '微信',
@@ -71,6 +98,14 @@ String billDate(DateTime date) =>
     '${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 String billMonth(DateTime date) => billDate(date).substring(0, 7);
 
+final _zoneSuffix = RegExp(r'(?:[zZ]|[+-]\d{2}:?\d{2})$');
+
+int _billCreatedAt(Item bill) {
+  final value = text(bill.data['created_at']);
+  final timestamp = _zoneSuffix.hasMatch(value) ? value : '${value}Z';
+  return DateTime.tryParse(timestamp)?.microsecondsSinceEpoch ?? 0;
+}
+
 List<Item> monthlyBills(
   WorkspaceData data,
   int team,
@@ -89,8 +124,10 @@ List<Item> monthlyBills(
       )
       .toList();
   values.sort((a, b) {
-    final order = text(b.data['date']).compareTo(text(a.data['date']));
-    return order == 0 ? b.edited.compareTo(a.edited) : order;
+    final dateOrder = text(b.data['date']).compareTo(text(a.data['date']));
+    if (dateOrder != 0) return dateOrder;
+    final createdOrder = _billCreatedAt(b).compareTo(_billCreatedAt(a));
+    return createdOrder == 0 ? b.uid.compareTo(a.uid) : createdOrder;
   });
   return values;
 }
@@ -110,20 +147,29 @@ List<String> archivedBillMonths(WorkspaceData data, int team, DateTime now) {
 }
 
 class BillTotals {
-  BillTotals(Iterable<Item> rows) {
+  BillTotals._();
+
+  static Map<String, BillTotals> byCurrency(Iterable<Item> rows) {
+    final totals = {defaultBillCurrency: BillTotals._()};
     for (final row in rows) {
-      if (!billIncluded(row.data)) continue;
+      final type = row.data['type'];
+      if (!billIncluded(row.data) || (type != 'expense' && type != 'income')) {
+        continue;
+      }
+      final group = totals.putIfAbsent(billCurrency(row.data), BillTotals._);
       final amount = ExactAmount.parse(text(row.data['amount']));
-      if (row.data['type'] == 'expense') {
-        expense = expense + amount;
+      if (type == 'expense') {
+        group.expense = group.expense + amount;
         final party = text(row.data['party']);
-        parties[party] =
-            (parties[party] ?? ExactAmount(BigInt.zero, 0)) + amount;
-      } else if (row.data['type'] == 'income') {
-        income = income + amount;
+        group.parties[party] =
+            (group.parties[party] ?? ExactAmount(BigInt.zero, 0)) + amount;
+      } else {
+        group.income = group.income + amount;
       }
     }
+    return totals;
   }
+
   ExactAmount expense = ExactAmount(BigInt.zero, 0),
       income = ExactAmount(BigInt.zero, 0);
   final parties = <String, ExactAmount>{};
@@ -154,7 +200,12 @@ void saveBill(
   final existing = data.get(team, Tables.bill, uid);
   if (existing != null) captureBill(data, who, existing, onlyIfMissing: true);
   data.save(who, team, Tables.bill, uid, {
+    if (existing == null)
+      'created_at': DateTime.now().toUtc().toIso8601String(),
     ...changes,
+    if (changes.containsKey('include_in_totals') &&
+        existing?.data.containsKey(_legacyTotalsField) == true)
+      _legacyTotalsField: '',
     'amount': ExactAmount.parse(text(changes['amount'])).toString(),
   });
   saveRecordAttachments(
@@ -175,6 +226,7 @@ const billVersionFields = [
   'date',
   'type',
   'amount',
+  'currency',
   'channel',
   'party',
   'remark',
@@ -200,6 +252,8 @@ void captureBill(
     for (final key in billVersionFields)
       key: key == 'include_in_totals'
           ? (billIncluded(bill.data) ? 1 : 0)
+          : key == 'currency'
+          ? billCurrency(bill.data)
           : text(bill.data[key]),
     'attachments': attachmentIds(
       data,
@@ -223,6 +277,8 @@ void revertBill(WorkspaceData data, Identity who, Item row, Fields snapshot) {
   captureBill(data, who, current, onlyIfMissing: true);
   data.save(who, row.team, Tables.bill, row.uid, {
     for (final key in billVersionFields) key: snapshot[key],
+    'currency': billCurrency(snapshot),
+    if (current.data.containsKey(_legacyTotalsField)) _legacyTotalsField: '',
   });
   restoreAttachmentIds(
     data,

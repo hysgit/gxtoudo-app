@@ -92,7 +92,7 @@ void main() {
       who,
       -1,
       'expense',
-      {...bill, 'amount': '20.00', 'include_in_totals': 0},
+      {...bill, 'amount': '20.00', 'currency': 'USD', 'include_in_totals': 0},
       [],
       {},
     );
@@ -105,7 +105,9 @@ void main() {
       [],
       {},
     );
-    var totals = BillTotals(data.list(-1, Tables.bill));
+    final changed = recordVersions(data, -1, Tables.bill, 'expense').first;
+    expect(versionContents(changed)['currency'], 'USD');
+    var totals = BillTotals.byCurrency(data.list(-1, Tables.bill))['CNY']!;
     expect(totals.expense.toString(), '0.00');
     expect(totals.parties, isEmpty);
     expect(totals.income.toString(), '3.99');
@@ -113,11 +115,19 @@ void main() {
       data,
       who,
       data.get(-1, Tables.bill, 'expense')!,
-      versionContents(initial),
+      versionContents(initial)..remove('currency'),
     );
-    totals = BillTotals(data.list(-1, Tables.bill));
+    expect(data.get(-1, Tables.bill, 'expense')!.data['currency'], 'CNY');
+    totals = BillTotals.byCurrency(data.list(-1, Tables.bill))['CNY']!;
     expect(totals.expense.toString(), '0.120000001');
     expect(totals.parties['微信余额'].toString(), '0.120000001');
+    revertBill(
+      data,
+      who,
+      data.get(-1, Tables.bill, 'expense')!,
+      versionContents(changed),
+    );
+    expect(data.get(-1, Tables.bill, 'expense')!.data['currency'], 'USD');
   });
 
   test('闹钟与系统通知各自筛选，双提醒同时安排', () async {

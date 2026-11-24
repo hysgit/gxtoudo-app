@@ -79,7 +79,8 @@ class RecordHistoryPage extends StatelessWidget {
           '子任务\n${children.join('\n')}',
         if (text(snapshot['review']).isNotEmpty) '复盘 ${snapshot['review']}',
       ] else ...[
-        '${snapshot['date']} · ${billTypes[snapshot['type']]} · ${snapshot['amount']}',
+        '${snapshot['date']} · ${billTypes[snapshot['type']]} · '
+            '${billAmountLabel(text(snapshot['amount']), billCurrency(snapshot))}',
         '${snapshot['channel']} · ${snapshot['party']}',
         if (text(snapshot['location']).isNotEmpty) text(snapshot['location']),
         if (!billIncluded(snapshot)) '未计入汇总',

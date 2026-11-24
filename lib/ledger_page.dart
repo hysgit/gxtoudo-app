@@ -12,7 +12,10 @@ class BillTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final kind = text(bill.data['type']);
-    final amount = ExactAmount.parse(text(bill.data['amount'])).toString();
+    final amount = billAmountLabel(
+      ExactAmount.parse(text(bill.data['amount'])).toString(),
+      billCurrency(bill.data),
+    );
     final date = '${text(bill.data['date'])}  ${billTypes[kind] ?? kind}';
     final money = Text(
       amount,
@@ -85,8 +88,7 @@ class LedgerPage extends StatefulWidget {
 class _LedgerPageState extends State<LedgerPage> {
   bool archive = false;
   String? selectedMonth;
-  Widget summary(List<Item> rows) {
-    final totals = BillTotals(rows);
+  Widget summary(BillTotals totals, String currency) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Column(
@@ -103,7 +105,7 @@ class _LedgerPageState extends State<LedgerPage> {
                   child: Padding(
                     padding: const EdgeInsets.only(right: 6),
                     child: SelectableText(
-                      '$label $value',
+                      '$label ${billAmountLabel(value.toString(), currency)}',
                       style: const TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
@@ -121,7 +123,7 @@ class _LedgerPageState extends State<LedgerPage> {
               children: [
                 for (final entry in totals.parties.entries)
                   Text(
-                    '${entry.key}  ${entry.value}',
+                    '${entry.key}  ${billAmountLabel(entry.value.toString(), currency)}',
                     style: const TextStyle(fontSize: 13, color: muted),
                   ),
               ],
@@ -186,7 +188,8 @@ class _LedgerPageState extends State<LedgerPage> {
                   style: const TextStyle(fontSize: 16),
                 ),
               ),
-            summary(rows),
+            for (final entry in BillTotals.byCurrency(rows).entries)
+              summary(entry.value, entry.key),
             if (rows.isEmpty)
               const EmptyContent('这个月还没有账单', icon: Icons.receipt_long_outlined),
             for (final bill in rows)

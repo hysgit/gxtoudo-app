@@ -39,6 +39,7 @@ class _BillEditorState extends State<BillEditor> {
   late final amount = TextEditingController(
     text: text(widget.bill?.data['amount']),
   );
+  late String currency = billCurrency(widget.bill?.data ?? {});
   late final remark = TextEditingController(
     text: text(widget.bill?.data['remark']),
   );
@@ -173,6 +174,7 @@ class _BillEditorState extends State<BillEditor> {
         'date': billDate(date),
         'type': type,
         'amount': amount.text,
+        'currency': currency,
         'include_in_totals': included ? 1 : 0,
         'channel': channel,
         'party': party,
@@ -391,21 +393,59 @@ class _BillEditorState extends State<BillEditor> {
                     },
             ),
             const SizedBox(height: 12),
-            TextFormField(
-              controller: amount,
-              enabled: !busy,
-              decoration: const InputDecoration(labelText: '金额'),
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              validator: (value) {
-                try {
-                  ExactAmount.parse(value ?? '');
-                  return null;
-                } on FormatException catch (error) {
-                  return error.message;
-                }
-              },
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: TextFormField(
+                    controller: amount,
+                    enabled: !busy,
+                    decoration: const InputDecoration(labelText: '金额'),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    validator: (value) {
+                      try {
+                        ExactAmount.parse(value ?? '');
+                        return null;
+                      } on FormatException catch (error) {
+                        return error.message;
+                      }
+                    },
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: DropdownButtonFormField<String>(
+                    initialValue: currency,
+                    isExpanded: true,
+                    decoration: const InputDecoration(labelText: '币种'),
+                    items: [
+                      for (final entry in billCurrencies.entries)
+                        DropdownMenuItem(
+                          value: entry.key,
+                          child: Text(
+                            entry.value,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      if (!billCurrencies.containsKey(currency))
+                        DropdownMenuItem(
+                          value: currency,
+                          child: Text(currency),
+                        ),
+                    ],
+                    onChanged: busy
+                        ? null
+                        : (value) => setState(() {
+                            currency = value!;
+                            dirty = true;
+                          }),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
             CheckboxListTile(
