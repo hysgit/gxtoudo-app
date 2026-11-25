@@ -1,3 +1,10 @@
+import 'package:cupertino_ui/cupertino_ui.dart'
+    show
+        CupertinoButton,
+        CupertinoDatePicker,
+        CupertinoDatePickerMode,
+        CupertinoPopupSurface,
+        showCupertinoModalPopup;
 import 'package:material_ui/material_ui.dart';
 
 import 'appearance.dart';
@@ -130,8 +137,61 @@ class _TaskEditorState extends State<TaskEditor> {
   }
 
   Future<void> changeTime() async {
-    final value = await showTimePicker(context: context, initialTime: time);
+    final value = await pickTime(time);
     if (value != null && mounted) setState(() => time = value);
+  }
+
+  Future<TimeOfDay?> pickTime(TimeOfDay initial) {
+    if (Theme.of(context).platform != TargetPlatform.iOS) {
+      return showTimePicker(context: context, initialTime: initial);
+    }
+    final labels = MaterialLocalizations.of(context);
+    final use24HourFormat = MediaQuery.alwaysUse24HourFormatOf(context);
+    var selected = initial;
+    return showCupertinoModalPopup<TimeOfDay>(
+      context: context,
+      semanticsDismissible: true,
+      builder: (popupContext) => CupertinoPopupSurface(
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  CupertinoButton(
+                    onPressed: () => Navigator.pop(popupContext),
+                    child: Text(labels.cancelButtonLabel),
+                  ),
+                  CupertinoButton(
+                    onPressed: () => Navigator.pop(popupContext, selected),
+                    child: Text(labels.okButtonLabel),
+                  ),
+                ],
+              ),
+              SizedBox(
+                height: 216,
+                width: double.infinity,
+                child: CupertinoDatePicker(
+                  mode: CupertinoDatePickerMode.time,
+                  initialDateTime: DateTime(
+                    2000,
+                    1,
+                    1,
+                    initial.hour,
+                    initial.minute,
+                  ),
+                  use24hFormat: use24HourFormat,
+                  onDateTimeChanged: (value) =>
+                      selected = TimeOfDay.fromDateTime(value),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   void changeSpace(int value) {
@@ -147,10 +207,7 @@ class _TaskEditorState extends State<TaskEditor> {
     if (!mounted || selected == null) return;
     final value = allDay
         ? const TimeOfDay(hour: 23, minute: 59)
-        : await showTimePicker(
-            context: context,
-            initialTime: TimeOfDay.fromDateTime(end ?? DateTime.now()),
-          );
+        : await pickTime(TimeOfDay.fromDateTime(end ?? DateTime.now()));
     if (value != null && mounted) {
       setState(
         () => end = DateTime(

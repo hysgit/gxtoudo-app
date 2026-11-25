@@ -1,3 +1,5 @@
+import 'package:cupertino_ui/cupertino_ui.dart'
+    show CupertinoDatePicker, CupertinoDatePickerMode, CupertinoPicker;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gxtodo/appearance.dart';
 import 'package:gxtodo/controller.dart';
@@ -72,7 +74,7 @@ void main() {
     String? permissionRequested;
     await tester.pumpWidget(
       MaterialApp(
-        theme: todoTheme(),
+        theme: todoTheme().copyWith(platform: TargetPlatform.android),
         home: TaskEditor(
           controller: controller,
           team: -1,
@@ -90,6 +92,16 @@ void main() {
     );
     expect(find.text('开始时间'), findsOneWidget);
     expect(find.text('开始时'), findsOneWidget);
+    await tester.tap(find.text('开始时间'));
+    await tester.pumpAndSettle();
+    final dialog = find.byType(TimePickerDialog);
+    expect(dialog, findsOneWidget);
+    await tester.tap(
+      find.text(
+        MaterialLocalizations.of(tester.element(dialog)).cancelButtonLabel,
+      ),
+    );
+    await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextFormField).first, '默认提醒');
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
@@ -97,6 +109,66 @@ void main() {
     expect(task.allDay, isFalse);
     expect(task.alert!.data['alert_time'], 0);
     expect(permissionRequested, 'both');
+  });
+
+  testWidgets('iOS 开始和结束时间使用滚轮，确认保存，取消保留原时间', (tester) async {
+    phone(tester);
+    final start = DateTime(2032, 1, 31, 21);
+    await controller.mutate(
+      (data, who) => saveTask(data, who, -1, null, taskValues(start)),
+    );
+    final task = taskList(controller.data, controller.identity, -1).single;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: todoTheme().copyWith(platform: TargetPlatform.iOS),
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        supportedLocales: const [Locale('zh', 'CN')],
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
+          child: child!,
+        ),
+        home: TaskEditor(controller: controller, team: -1, task: task),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final picker = find.byType(CupertinoDatePicker);
+    final wheels = find.descendant(
+      of: picker,
+      matching: find.byType(CupertinoPicker),
+    );
+    await tester.tap(find.text('开始时间'));
+    await tester.pumpAndSettle();
+    final startPicker = tester.widget<CupertinoDatePicker>(picker);
+    expect(startPicker.mode, CupertinoDatePickerMode.time);
+    expect(startPicker.use24hFormat, isTrue);
+    expect(startPicker.initialDateTime.hour, 21);
+    expect(wheels, findsNWidgets(2));
+    final minutes = tester
+        .widget<CupertinoPicker>(wheels.last)
+        .scrollController!;
+    await tester.drag(wheels.last, const Offset(0, -80));
+    await tester.pumpAndSettle();
+    final selectedMinute = minutes.selectedItem % 60;
+    expect(selectedMinute, greaterThan(0));
+    await tester.tap(find.text('确定'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('结束'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('确定'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<CupertinoDatePicker>(picker).initialDateTime.hour, 22);
+    await tester.drag(wheels.last, const Offset(0, -80));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+    final saved = taskList(controller.data, controller.identity, -1).single;
+    expect(saved.start, seconds(DateTime(2032, 1, 31, 21, selectedMinute)));
+    expect(saved.end, task.end);
   });
 
   testWidgets('编辑已有任务保留全天及无提醒设置', (tester) async {
