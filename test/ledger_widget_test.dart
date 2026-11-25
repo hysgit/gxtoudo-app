@@ -89,6 +89,30 @@ void main() {
           {},
         );
       }
+      for (final date in ['2026-11-01', '2026-10-01']) {
+        for (final (type, amount) in [
+          ('expense', '2.00'),
+          ('income', '3.00'),
+        ]) {
+          saveBill(
+            data,
+            who,
+            -1,
+            '$date-$type',
+            {
+              'name': '单独统计',
+              'date': date,
+              'type': type,
+              'amount': amount,
+              'channel': '微信',
+              'party': '微信余额',
+              'include_in_totals': 0,
+            },
+            [],
+            {},
+          );
+        }
+      }
       saveBill(
         data,
         who,
@@ -122,6 +146,10 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.textContaining('账单 2026-11-01'), findsOneWidget);
+    expect(find.text('总支出 0.10'), findsOneWidget);
+    expect(find.text('总收入 0.00'), findsOneWidget);
+    expect(find.text('微信余额  2.10'), findsOneWidget);
+    expect(find.text('微信余额  3.00'), findsOneWidget);
     await tester.tap(find.text('已归档'));
     await tester.pumpAndSettle();
     expect(find.text('2026 年'), findsOneWidget);
@@ -131,6 +159,8 @@ void main() {
     expect(find.textContaining('账单 2026-10-01'), findsOneWidget);
     expect(find.text('总支出 0.10'), findsOneWidget);
     expect(find.text('总收入 0.00'), findsOneWidget);
+    expect(find.text('微信余额  2.10'), findsOneWidget);
+    expect(find.text('微信余额  3.00'), findsOneWidget);
     expect(find.text('总支出 USD 2.50'), findsOneWidget);
     expect(find.text('USD 2.50'), findsOneWidget);
     expect(find.textContaining('账单 2026-11-01'), findsNothing);

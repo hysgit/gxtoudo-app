@@ -115,20 +115,28 @@ class _LedgerPageState extends State<LedgerPage> {
                 ),
             ],
           ),
-          if (totals.parties.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Wrap(
-              spacing: 16,
-              runSpacing: 4,
-              children: [
-                for (final entry in totals.parties.entries)
+          for (final (label, parties) in [
+            ('支出方', totals.expenseByParty),
+            ('收入方', totals.incomeByParty),
+          ])
+            if (parties.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 16,
+                runSpacing: 4,
+                children: [
                   Text(
-                    '${entry.key}  ${billAmountLabel(entry.value.toString(), currency)}',
+                    label,
                     style: const TextStyle(fontSize: 13, color: muted),
                   ),
-              ],
-            ),
-          ],
+                  for (final entry in parties.entries)
+                    Text(
+                      '${entry.key}  ${billAmountLabel(entry.value.toString(), currency)}',
+                      style: const TextStyle(fontSize: 13, color: muted),
+                    ),
+                ],
+              ),
+            ],
         ],
       ),
     );

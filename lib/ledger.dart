@@ -153,26 +153,29 @@ class BillTotals {
     final totals = {defaultBillCurrency: BillTotals._()};
     for (final row in rows) {
       final type = row.data['type'];
-      if (!billIncluded(row.data) || (type != 'expense' && type != 'income')) {
-        continue;
-      }
+      if (type != 'expense' && type != 'income') continue;
       final group = totals.putIfAbsent(billCurrency(row.data), BillTotals._);
       final amount = ExactAmount.parse(text(row.data['amount']));
-      if (type == 'expense') {
-        group.expense = group.expense + amount;
-        final party = text(row.data['party']);
-        group.parties[party] =
-            (group.parties[party] ?? ExactAmount(BigInt.zero, 0)) + amount;
-      } else {
-        group.income = group.income + amount;
+      if (billIncluded(row.data)) {
+        if (type == 'expense') {
+          group.expense = group.expense + amount;
+        } else {
+          group.income = group.income + amount;
+        }
       }
+      final parties = type == 'expense'
+          ? group.expenseByParty
+          : group.incomeByParty;
+      final party = text(row.data['party']);
+      parties.update(party, (total) => total + amount, ifAbsent: () => amount);
     }
     return totals;
   }
 
   ExactAmount expense = ExactAmount(BigInt.zero, 0),
       income = ExactAmount(BigInt.zero, 0);
-  final parties = <String, ExactAmount>{};
+  final expenseByParty = <String, ExactAmount>{};
+  final incomeByParty = <String, ExactAmount>{};
 }
 
 List<String> billChoices(WorkspaceData data, int team, String kind) => {

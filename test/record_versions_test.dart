@@ -75,7 +75,7 @@ void main() {
     expect(attachmentIds(data, -1, Tables.taskAttachment, uid), ['file-1']);
   });
 
-  test('账单勾选影响总收入、总支出和支出方，历史还原保留金额精度', () {
+  test('还原账单历史版本时保留币种、金额精度和收支勾选', () {
     final data = WorkspaceData();
     final bill = {
       'name': '原记录',
@@ -96,21 +96,9 @@ void main() {
       [],
       {},
     );
-    saveBill(
-      data,
-      who,
-      -1,
-      'income',
-      {...bill, 'type': 'income', 'amount': '3.99'},
-      [],
-      {},
-    );
     final changed = recordVersions(data, -1, Tables.bill, 'expense').first;
     expect(versionContents(changed)['currency'], 'USD');
-    var totals = BillTotals.byCurrency(data.list(-1, Tables.bill))['CNY']!;
-    expect(totals.expense.toString(), '0.00');
-    expect(totals.parties, isEmpty);
-    expect(totals.income.toString(), '3.99');
+    expect(versionContents(changed)['include_in_totals'], 0);
     revertBill(
       data,
       who,
@@ -118,9 +106,9 @@ void main() {
       versionContents(initial)..remove('currency'),
     );
     expect(data.get(-1, Tables.bill, 'expense')!.data['currency'], 'CNY');
-    totals = BillTotals.byCurrency(data.list(-1, Tables.bill))['CNY']!;
+    final totals = BillTotals.byCurrency(data.list(-1, Tables.bill))['CNY']!;
     expect(totals.expense.toString(), '0.120000001');
-    expect(totals.parties['微信余额'].toString(), '0.120000001');
+    expect(totals.expenseByParty['微信余额'].toString(), '0.120000001');
     revertBill(
       data,
       who,
@@ -128,6 +116,7 @@ void main() {
       versionContents(changed),
     );
     expect(data.get(-1, Tables.bill, 'expense')!.data['currency'], 'USD');
+    expect(billIncluded(data.get(-1, Tables.bill, 'expense')!.data), isFalse);
   });
 
   test('闹钟与系统通知各自筛选，双提醒同时安排', () async {
