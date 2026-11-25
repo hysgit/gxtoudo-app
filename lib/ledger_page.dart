@@ -85,10 +85,19 @@ class LedgerPage extends StatefulWidget {
   State<LedgerPage> createState() => _LedgerPageState();
 }
 
+typedef _PartySelection = ({
+  String month,
+  String currency,
+  String type,
+  String party,
+});
+
 class _LedgerPageState extends State<LedgerPage> {
   bool archive = false;
   String? selectedMonth;
-  Widget summary(BillTotals totals, String currency) {
+  _PartySelection? selectedParty;
+
+  Widget summary(BillTotals totals, String currency, String month) {
     const expenseColor = Color(0xffa74635);
     const incomeColor = Color(0xff1e6c53);
     final parties = {
@@ -115,11 +124,38 @@ class _LedgerPageState extends State<LedgerPage> {
       ),
     );
 
-    Widget amountCell(ExactAmount? amount, Color color) => cell(
-      amount == null ? '—' : billAmountLabel(amount.toString(), currency),
-      color: amount == null ? muted : color,
-      numeric: true,
-    );
+    Widget amountCell(String party, String type, ExactAmount? amount) {
+      if (amount == null) return cell('—', color: muted, numeric: true);
+      final selection = (
+        month: month,
+        currency: currency,
+        type: type,
+        party: party,
+      );
+      final selected = selectedParty == selection;
+      final isExpense = type == 'expense';
+      final partyLabel = party.isEmpty ? '未填写' : party;
+      return Semantics(
+        button: true,
+        selected: selected,
+        label: '$partyLabel${billTypes[type]}汇总',
+        child: Material(
+          color: selected
+              ? (isExpense ? const Color(0xfffbe9e4) : const Color(0xffe4f3ea))
+              : Colors.transparent,
+          child: InkWell(
+            onTap: () =>
+                setState(() => selectedParty = selected ? null : selection),
+            child: cell(
+              billAmountLabel(amount.toString(), currency),
+              color: isExpense ? expenseColor : incomeColor,
+              heading: selected,
+              numeric: true,
+            ),
+          ),
+        ),
+      );
+    }
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
@@ -178,8 +214,12 @@ class _LedgerPageState extends State<LedgerPage> {
                   TableRow(
                     children: [
                       cell(party.isEmpty ? '未填写' : party),
-                      amountCell(totals.expenseByParty[party], expenseColor),
-                      amountCell(totals.incomeByParty[party], incomeColor),
+                      amountCell(
+                        party,
+                        'expense',
+                        totals.expenseByParty[party],
+                      ),
+                      amountCell(party, 'income', totals.incomeByParty[party]),
                     ],
                   ),
               ],
@@ -209,6 +249,18 @@ class _LedgerPageState extends State<LedgerPage> {
       final rows = month == null
           ? <Item>[]
           : monthlyBills(widget.controller.data, widget.team, month);
+      final selection = selectedParty;
+      final matchingRows = selection == null || selection.month != month
+          ? rows
+          : rows
+                .where(
+                  (bill) =>
+                      bill.data['type'] == selection.type &&
+                      text(bill.data['party']) == selection.party &&
+                      billCurrency(bill.data) == selection.currency &&
+                      billIncludedInPartyStats(bill.data),
+                )
+                .toList();
       return PageContent(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 80),
         children: [
@@ -222,6 +274,7 @@ class _LedgerPageState extends State<LedgerPage> {
             onSelectionChanged: (values) => setState(() {
               archive = values.single;
               selectedMonth = null;
+              selectedParty = null;
             }),
           ),
           if (month != null) ...[
@@ -229,7 +282,10 @@ class _LedgerPageState extends State<LedgerPage> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton.icon(
-                  onPressed: () => setState(() => selectedMonth = null),
+                  onPressed: () => setState(() {
+                    selectedMonth = null;
+                    selectedParty = null;
+                  }),
                   icon: const Icon(Icons.chevron_left),
                   label: Text(
                     '${month.substring(0, 4)}年 ${int.parse(month.substring(5))}月',
@@ -245,10 +301,15 @@ class _LedgerPageState extends State<LedgerPage> {
                 ),
               ),
             for (final entry in BillTotals.byCurrency(rows).entries)
-              summary(entry.value, entry.key),
+              summary(entry.value, entry.key, month),
             if (rows.isEmpty)
               const EmptyContent('这个月还没有账单', icon: Icons.receipt_long_outlined),
-            for (final bill in rows)
+            if (rows.isNotEmpty && matchingRows.isEmpty)
+              TextButton(
+                onPressed: () => setState(() => selectedParty = null),
+                child: const Text('没有符合筛选的账单，显示全部'),
+              ),
+            for (final bill in matchingRows)
               BillTile(bill, onTap: () => widget.onEdit(bill)),
           ] else ...[
             const SizedBox(height: 8),

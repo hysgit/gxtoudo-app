@@ -213,6 +213,89 @@ void main() {
     expect(find.text('USD 2.50'), findsOneWidget);
     expect(find.textContaining('账单 2026-11-01'), findsNothing);
   });
+  testWidgets('点汇总金额按收支方、类型和币种筛选，再点恢复全部', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(393, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final controller = TodoController(MemoryRepository());
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    await controller.mutate((data, who) {
+      for (final date in ['2026-11-01', '2026-10-01']) {
+        for (final (name, type, party, currency, amount, inStats) in [
+          ('已计入支出', 'expense', '微信余额', 'CNY', '8', 1),
+          ('仅计分项', 'expense', '微信余额', 'CNY', '4', 1),
+          ('不计分项', 'expense', '微信余额', 'CNY', '30', 0),
+          ('已计入收入', 'income', '微信余额', 'CNY', '10', 1),
+          ('另一收支方', 'expense', '工行卡', 'CNY', '6', 1),
+          ('另一币种', 'expense', '微信余额', 'USD', '12', 1),
+        ]) {
+          saveBill(
+            data,
+            who,
+            -1,
+            '$date-$name',
+            {
+              'name': name,
+              'date': date,
+              'type': type,
+              'party': party,
+              'currency': currency,
+              'amount': amount,
+              'include_in_totals': name == '仅计分项' ? 0 : 1,
+              billPartyStatsField: inStats,
+            },
+            [],
+            {},
+          );
+        }
+      }
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: todoTheme(),
+        home: Scaffold(
+          body: LedgerPage(
+            controller,
+            -1,
+            onEdit: (_) {},
+            now: DateTime(2026, 11, 20),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    Finder amount(String value) =>
+        find.descendant(of: find.byType(Table), matching: find.text(value));
+    Iterable<String> billNames() => tester
+        .widgetList<BillTile>(find.byType(BillTile))
+        .map((tile) => tile.bill.name);
+    Future<void> tapAmount(String value) async {
+      await tester.tap(amount(value));
+      await tester.pumpAndSettle();
+    }
+
+    expect(billNames(), hasLength(6));
+    await tapAmount('12.00 元');
+    expect(billNames(), unorderedEquals(['已计入支出', '仅计分项']));
+    expect(find.text('总支出 44.00 元'), findsOneWidget);
+    expect(amount('USD 12.00'), findsOneWidget);
+    await tapAmount('12.00 元');
+    expect(billNames(), hasLength(6));
+    await tapAmount('10.00 元');
+    expect(billNames(), ['已计入收入']);
+    await tapAmount('USD 12.00');
+    expect(billNames(), ['另一币种']);
+    await tester.tap(find.text('已归档'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('ledger-month-2026-10')));
+    await tester.pumpAndSettle();
+    expect(billNames(), hasLength(6));
+    await tapAmount('12.00 元');
+    expect(billNames(), unorderedEquals(['已计入支出', '仅计分项']));
+    await tapAmount('12.00 元');
+    expect(billNames(), hasLength(6));
+  });
   testWidgets('窄屏并排显示途径和收支方，微信自动选余额且可手动更改', (tester) async {
     await tester.binding.setSurfaceSize(const Size(320, 700));
     addTearDown(() => tester.binding.setSurfaceSize(null));
