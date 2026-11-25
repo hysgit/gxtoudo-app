@@ -144,16 +144,7 @@ class _BillEditorState extends State<BillEditor> {
           );
         }
       });
-      if (mounted) {
-        setState(() {
-          if (kind == 'channel') {
-            channel = value;
-          } else {
-            party = value;
-          }
-          dirty = true;
-        });
-      }
+      if (mounted) selectChoice(kind, value);
     } catch (error) {
       report(error);
     }
@@ -251,7 +242,27 @@ class _BillEditorState extends State<BillEditor> {
     }
   }
 
+  void selectChoice(String kind, String value) {
+    setState(() {
+      if (kind == 'channel') {
+        channel = value;
+        if (value == '微信') party = '微信余额';
+      } else {
+        party = value;
+      }
+      dirty = true;
+    });
+  }
+
   Widget choices(String kind, String value) {
+    final isChannel = kind == 'channel';
+    final label = isChannel
+        ? '途径'
+        : switch (type) {
+            'expense' => '支出方',
+            'income' => '收入方',
+            _ => '收支方',
+          };
     final options = {
       ...billChoices(widget.controller.data, widget.team, kind),
       value,
@@ -259,40 +270,49 @@ class _BillEditorState extends State<BillEditor> {
     return Row(
       children: [
         Expanded(
-          child: DropdownButtonFormField<String>(
-            key: ValueKey('$kind-$value'),
+          child: PopupMenuButton<String>(
             initialValue: value,
-            isExpanded: true,
-            decoration: InputDecoration(
-              labelText: kind == 'channel' ? '途径' : '支出方/收入方',
-            ),
-            items: [
+            enabled: !busy,
+            tooltip: label,
+            position: PopupMenuPosition.under,
+            onSelected: (next) => selectChoice(kind, next),
+            itemBuilder: (_) => [
               for (final item in options)
-                DropdownMenuItem(
-                  value: item,
-                  child: Text(item, overflow: TextOverflow.ellipsis),
-                ),
+                PopupMenuItem(value: item, height: 40, child: Text(item)),
             ],
-            onChanged: busy
-                ? null
-                : (next) {
-                    if (next != null) {
-                      setState(() {
-                        if (kind == 'channel') {
-                          channel = next;
-                        } else {
-                          party = next;
-                        }
-                        dirty = true;
-                      });
-                    }
-                  },
+            child: InputDecorator(
+              decoration: InputDecoration(
+                labelText: label,
+                enabled: !busy,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 14,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      value,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const Icon(Icons.arrow_drop_down, size: 18),
+                ],
+              ),
+            ),
           ),
         ),
         IconButton(
-          tooltip: kind == 'channel' ? '新增途径' : '新增支出方/收入方',
+          tooltip: isChannel ? '新增途径' : '新增支出方/收入方',
           onPressed: busy ? null : () => addOption(kind),
-          icon: const Icon(Icons.add),
+          style: IconButton.styleFrom(
+            minimumSize: const Size(36, 44),
+            padding: EdgeInsets.zero,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          icon: const Icon(Icons.add, size: 20),
         ),
       ],
     );
@@ -465,9 +485,13 @@ class _BillEditorState extends State<BillEditor> {
                       dirty = true;
                     }),
             ),
-            choices('channel', channel),
-            const SizedBox(height: 12),
-            choices('party', party),
+            Row(
+              children: [
+                Expanded(child: choices('channel', channel)),
+                const SizedBox(width: 8),
+                Expanded(child: choices('party', party)),
+              ],
+            ),
             const SizedBox(height: 12),
             TextFormField(
               controller: subject,

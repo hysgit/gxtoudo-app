@@ -25,7 +25,7 @@ String billCurrency(Fields bill) => switch (text(bill['currency'])) {
 };
 
 String billAmountLabel(String amount, String currency) =>
-    currency == defaultBillCurrency ? amount : '$currency $amount';
+    currency == defaultBillCurrency ? '$amount 元' : '$currency $amount';
 
 const _legacyTotalsField = 'legacy_include_in_totals';
 

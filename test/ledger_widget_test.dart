@@ -146,10 +146,11 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.textContaining('账单 2026-11-01'), findsOneWidget);
-    expect(find.text('总支出 0.10'), findsOneWidget);
-    expect(find.text('总收入 0.00'), findsOneWidget);
-    expect(find.text('微信余额  2.10'), findsOneWidget);
-    expect(find.text('微信余额  3.00'), findsOneWidget);
+    expect(find.text('总支出 0.10 元'), findsOneWidget);
+    expect(find.text('总收入 0.00 元'), findsOneWidget);
+    expect(find.text('微信余额  2.10 元'), findsOneWidget);
+    expect(find.text('微信余额  3.00 元'), findsOneWidget);
+    expect(find.text('0.10 元'), findsOneWidget);
     await tester.tap(find.text('已归档'));
     await tester.pumpAndSettle();
     expect(find.text('2026 年'), findsOneWidget);
@@ -157,13 +158,58 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('ledger-month-2026-10')));
     await tester.pumpAndSettle();
     expect(find.textContaining('账单 2026-10-01'), findsOneWidget);
-    expect(find.text('总支出 0.10'), findsOneWidget);
-    expect(find.text('总收入 0.00'), findsOneWidget);
-    expect(find.text('微信余额  2.10'), findsOneWidget);
-    expect(find.text('微信余额  3.00'), findsOneWidget);
+    expect(find.text('总支出 0.10 元'), findsOneWidget);
+    expect(find.text('总收入 0.00 元'), findsOneWidget);
+    expect(find.text('微信余额  2.10 元'), findsOneWidget);
+    expect(find.text('微信余额  3.00 元'), findsOneWidget);
     expect(find.text('总支出 USD 2.50'), findsOneWidget);
     expect(find.text('USD 2.50'), findsOneWidget);
     expect(find.textContaining('账单 2026-11-01'), findsNothing);
+  });
+  testWidgets('窄屏并排显示途径和收支方，微信自动选余额且可手动更改', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(320, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final controller = TodoController(MemoryRepository());
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: todoTheme(),
+        home: BillEditor(
+          controller,
+          -1,
+          locationLoader: () async => const BillLocation('测试地点', '30', '120'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final channel = find.widgetWithText(PopupMenuButton<String>, '途径');
+    final party = find.widgetWithText(PopupMenuButton<String>, '支出方');
+    expect(tester.getCenter(channel).dy, tester.getCenter(party).dy);
+    expect(tester.getCenter(channel).dx, lessThan(tester.getCenter(party).dx));
+
+    await tester.tap(channel);
+    await tester.pumpAndSettle();
+    final wechat = find.widgetWithText(PopupMenuItem<String>, '微信');
+    expect(tester.getSize(wechat).height, 40);
+    await tester.tap(wechat);
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(of: party, matching: find.text('微信余额')),
+      findsOneWidget,
+    );
+
+    await tester.tap(party);
+    await tester.pumpAndSettle();
+    final bank = find.widgetWithText(PopupMenuItem<String>, '工行卡');
+    expect(tester.getSize(bank).height, 40);
+    await tester.tap(bank);
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(of: party, matching: find.text('工行卡')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
   });
   testWidgets('窄屏账单默认人民币，选美元后精确金额和定位一同保存', (tester) async {
     await tester.binding.setSurfaceSize(const Size(360, 780));
