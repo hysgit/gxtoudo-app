@@ -30,7 +30,7 @@ class AiPage extends StatefulWidget {
 
 class _AiPageState extends State<AiPage> {
   final input = TextEditingController();
-  final scroll = ScrollController();
+  final scroll = ScrollController(keepScrollOffset: false);
   final speech = SpeechToText();
   var thread = newId('chat');
   List<Fields> turns = [];
@@ -123,7 +123,11 @@ class _AiPageState extends State<AiPage> {
   }
 
   void scrollToBottom() => WidgetsBinding.instance.addPostFrameCallback((_) {
-    if (scroll.hasClients) scroll.jumpTo(scroll.position.maxScrollExtent);
+    if (!scroll.hasClients) return;
+    final position = scroll.position;
+    scroll.jumpTo(
+      turns.isEmpty ? position.maxScrollExtent : position.minScrollExtent,
+    );
   });
 
   void choose(String value) {
@@ -375,6 +379,17 @@ class _AiPageState extends State<AiPage> {
     if (mounted && chosen != null && chosen != thread) choose(chosen);
   }
 
+  Widget messageList({required List<Widget> children}) {
+    // Anchor the latest reply before Flutter measures earlier messages.
+    final newestFirst = turns.isNotEmpty;
+    return ListView(
+      controller: scroll,
+      reverse: newestFirst,
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      children: newestFirst ? children.reversed.toList() : children,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (widget.controller.account == null) {
@@ -412,9 +427,7 @@ class _AiPageState extends State<AiPage> {
             ),
           ),
         Expanded(
-          child: ListView(
-            controller: scroll,
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+          child: messageList(
             children: [
               if (turns.isEmpty && configured)
                 for (final example in ['本月总支出是多少？', '有哪些任务逾期了？', '帮我汇总最近的便签'])
