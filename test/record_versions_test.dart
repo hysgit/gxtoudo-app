@@ -92,18 +92,27 @@ void main() {
       who,
       -1,
       'expense',
-      {...bill, 'amount': '20.00', 'currency': 'USD', 'include_in_totals': 0},
+      {
+        ...bill,
+        'amount': '20.00',
+        'currency': 'USD',
+        'include_in_totals': 0,
+        billPartyStatsField: 0,
+      },
       [],
       {},
     );
     final changed = recordVersions(data, -1, Tables.bill, 'expense').first;
     expect(versionContents(changed)['currency'], 'USD');
     expect(versionContents(changed)['include_in_totals'], 0);
+    expect(versionContents(changed)[billPartyStatsField], 0);
     revertBill(
       data,
       who,
       data.get(-1, Tables.bill, 'expense')!,
-      versionContents(initial)..remove('currency'),
+      versionContents(initial)
+        ..remove('currency')
+        ..remove(billPartyStatsField),
     );
     expect(data.get(-1, Tables.bill, 'expense')!.data['currency'], 'CNY');
     final totals = BillTotals.byCurrency(data.list(-1, Tables.bill))['CNY']!;
@@ -117,6 +126,10 @@ void main() {
     );
     expect(data.get(-1, Tables.bill, 'expense')!.data['currency'], 'USD');
     expect(billIncluded(data.get(-1, Tables.bill, 'expense')!.data), isFalse);
+    expect(
+      billIncludedInPartyStats(data.get(-1, Tables.bill, 'expense')!.data),
+      isFalse,
+    );
   });
 
   test('闹钟与系统通知各自筛选，双提醒同时安排', () async {

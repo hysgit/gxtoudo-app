@@ -60,6 +60,9 @@ class _BillEditorState extends State<BillEditor> {
   late String latitude = text(widget.bill?.data['latitude']),
       longitude = text(widget.bill?.data['longitude']);
   late bool included = billIncluded(widget.bill?.data ?? {});
+  late bool includedInPartyStats = billIncludedInPartyStats(
+    widget.bill?.data ?? {},
+  );
   final draft = AttachmentDraft();
   bool busy = false,
       attaching = false,
@@ -167,6 +170,7 @@ class _BillEditorState extends State<BillEditor> {
         'amount': amount.text,
         'currency': currency,
         'include_in_totals': included ? 1 : 0,
+        billPartyStatsField: includedInPartyStats ? 1 : 0,
         'channel': channel,
         'party': party,
         'remark': remark.text,
@@ -485,6 +489,18 @@ class _BillEditorState extends State<BillEditor> {
                       dirty = true;
                     }),
             ),
+            if (type != 'transfer')
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(type == 'income' ? '计入收入统计' : '计入支出统计'),
+                value: includedInPartyStats,
+                onChanged: busy
+                    ? null
+                    : (value) => setState(() {
+                        includedInPartyStats = value ?? true;
+                        dirty = true;
+                      }),
+              ),
             Row(
               children: [
                 Expanded(child: choices('channel', channel)),

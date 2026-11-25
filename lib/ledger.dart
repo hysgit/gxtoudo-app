@@ -28,10 +28,15 @@ String billAmountLabel(String amount, String currency) =>
     currency == defaultBillCurrency ? '$amount 元' : '$currency $amount';
 
 const _legacyTotalsField = 'legacy_include_in_totals';
+const billPartyStatsField = 'include_in_party_stats';
 
 bool billIncluded(Fields bill) =>
     integer(bill[_legacyTotalsField], integer(bill['include_in_totals'], 1)) !=
     0;
+
+bool billIncludedInPartyStats(Fields bill) =>
+    integer(bill[billPartyStatsField], 1) != 0;
+
 const paymentChannels = [
   '支付宝',
   '微信',
@@ -154,20 +159,29 @@ class BillTotals {
     for (final row in rows) {
       final type = row.data['type'];
       if (type != 'expense' && type != 'income') continue;
+      final includedInTotals = billIncluded(row.data);
+      final includedInPartyStats = billIncludedInPartyStats(row.data);
+      if (!includedInTotals && !includedInPartyStats) continue;
       final group = totals.putIfAbsent(billCurrency(row.data), BillTotals._);
       final amount = ExactAmount.parse(text(row.data['amount']));
-      if (billIncluded(row.data)) {
+      if (includedInTotals) {
         if (type == 'expense') {
           group.expense = group.expense + amount;
         } else {
           group.income = group.income + amount;
         }
       }
-      final parties = type == 'expense'
-          ? group.expenseByParty
-          : group.incomeByParty;
-      final party = text(row.data['party']);
-      parties.update(party, (total) => total + amount, ifAbsent: () => amount);
+      if (includedInPartyStats) {
+        final parties = type == 'expense'
+            ? group.expenseByParty
+            : group.incomeByParty;
+        final party = text(row.data['party']);
+        parties.update(
+          party,
+          (total) => total + amount,
+          ifAbsent: () => amount,
+        );
+      }
     }
     return totals;
   }
@@ -237,6 +251,7 @@ const billVersionFields = [
   'latitude',
   'longitude',
   'include_in_totals',
+  billPartyStatsField,
 ];
 
 void captureBill(
@@ -253,11 +268,12 @@ void captureBill(
   bill.uid,
   {
     for (final key in billVersionFields)
-      key: key == 'include_in_totals'
-          ? (billIncluded(bill.data) ? 1 : 0)
-          : key == 'currency'
-          ? billCurrency(bill.data)
-          : text(bill.data[key]),
+      key: switch (key) {
+        'include_in_totals' => billIncluded(bill.data) ? 1 : 0,
+        billPartyStatsField => billIncludedInPartyStats(bill.data) ? 1 : 0,
+        'currency' => billCurrency(bill.data),
+        _ => text(bill.data[key]),
+      },
     'attachments': attachmentIds(
       data,
       bill.team,
@@ -279,8 +295,12 @@ void revertBill(WorkspaceData data, Identity who, Item row, Fields snapshot) {
   }
   captureBill(data, who, current, onlyIfMissing: true);
   data.save(who, row.team, Tables.bill, row.uid, {
-    for (final key in billVersionFields) key: snapshot[key],
-    'currency': billCurrency(snapshot),
+    for (final key in billVersionFields)
+      key: switch (key) {
+        'currency' => billCurrency(snapshot),
+        billPartyStatsField => billIncludedInPartyStats(snapshot) ? 1 : 0,
+        _ => snapshot[key],
+      },
     if (current.data.containsKey(_legacyTotalsField)) _legacyTotalsField: '',
   });
   restoreAttachmentIds(

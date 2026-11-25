@@ -40,6 +40,12 @@ void main() {
   });
 
   testWidgets('AI 位于时间轴和记账之间，追踪位于便签之后', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(393, 852));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    tester.view.padding = const FakeViewPadding(top: 62);
+    addTearDown(tester.view.resetPadding);
     final controller = TodoController(MemoryRepository());
     addTearDown(controller.dispose);
     await controller.initialize();
@@ -53,8 +59,10 @@ void main() {
       ['任务', '时间轴', 'AI', '记账', '便签', '追踪'],
     );
     expect(find.text('全部'), findsOneWidget);
+    expect(tester.getSize(find.byType(AppBar)).height, 118);
     await tester.tap(find.text('记账'));
     await tester.pumpAndSettle();
+    expect(tester.getSize(find.byType(AppBar)).height, 106);
     expect(find.text('本月'), findsOneWidget);
     expect(find.text('已归档'), findsOneWidget);
     expect(find.text('项目'), findsNothing);
@@ -126,6 +134,7 @@ void main() {
           'currency': 'USD',
           'channel': '支付宝',
           'party': '工行信用卡',
+          billPartyStatsField: 0,
         },
         [],
         {},
@@ -150,6 +159,9 @@ void main() {
     expect(find.text('总收入 0.00 元'), findsOneWidget);
     expect(find.text('微信余额  2.10 元'), findsOneWidget);
     expect(find.text('微信余额  3.00 元'), findsOneWidget);
+    final expenseLabel = tester.widget<Text>(find.text('支出统计'));
+    final incomeLabel = tester.widget<Text>(find.text('收入统计'));
+    expect(expenseLabel.style?.color, isNot(incomeLabel.style?.color));
     expect(find.text('0.10 元'), findsOneWidget);
     await tester.tap(find.text('已归档'));
     await tester.pumpAndSettle();
@@ -163,6 +175,7 @@ void main() {
     expect(find.text('微信余额  2.10 元'), findsOneWidget);
     expect(find.text('微信余额  3.00 元'), findsOneWidget);
     expect(find.text('总支出 USD 2.50'), findsOneWidget);
+    expect(find.text('工行信用卡  USD 2.50'), findsNothing);
     expect(find.text('USD 2.50'), findsOneWidget);
     expect(find.textContaining('账单 2026-11-01'), findsNothing);
   });
@@ -231,6 +244,25 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text(billDate(DateTime.now())), findsOneWidget);
     expect(find.text('人民币'), findsOneWidget);
+    expect(
+      tester
+          .widget<CheckboxListTile>(
+            find.widgetWithText(CheckboxListTile, '计入支出统计'),
+          )
+          .value,
+      isTrue,
+    );
+    await tester.tap(
+      find.widgetWithText(DropdownButtonFormField<String>, '类型'),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('收入'));
+    await tester.pumpAndSettle();
+    final partyStats = find.widgetWithText(CheckboxListTile, '计入收入统计');
+    expect(tester.widget<CheckboxListTile>(partyStats).value, isTrue);
+    await tester.tap(partyStats);
+    await tester.pumpAndSettle();
+    expect(tester.widget<CheckboxListTile>(partyStats).value, isFalse);
     await tester.tap(find.text('人民币'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('美元').last);
@@ -248,6 +280,9 @@ void main() {
     expect(row.data['currency'], 'USD');
     expect(row.data['location'], '测试地点');
     expect(row.data['latitude'], '30.1');
+    expect(row.data['type'], 'income');
+    expect(row.data['include_in_totals'], 1);
+    expect(row.data[billPartyStatsField], 0);
     expect(row.pending, 1);
   });
 }

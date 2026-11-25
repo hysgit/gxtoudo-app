@@ -189,6 +189,7 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
           backgroundColor: Colors.white,
           appBar: AppBar(
             backgroundColor: Colors.white,
+            toolbarHeight: tab == 3 ? 44 : null,
             title: Text(
               tab == 2
                   ? 'AI 对话'

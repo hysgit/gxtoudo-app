@@ -115,9 +115,19 @@ class _LedgerPageState extends State<LedgerPage> {
                 ),
             ],
           ),
-          for (final (label, parties) in [
-            ('支出方', totals.expenseByParty),
-            ('收入方', totals.incomeByParty),
+          for (final (label, parties, color, background) in [
+            (
+              '支出统计',
+              totals.expenseByParty,
+              const Color(0xffa74635),
+              const Color(0xfffbe9e4),
+            ),
+            (
+              '收入统计',
+              totals.incomeByParty,
+              const Color(0xff1e6c53),
+              const Color(0xffe4f3ea),
+            ),
           ])
             if (parties.isNotEmpty) ...[
               const SizedBox(height: 4),
@@ -125,9 +135,20 @@ class _LedgerPageState extends State<LedgerPage> {
                 spacing: 16,
                 runSpacing: 4,
                 children: [
-                  Text(
-                    label,
-                    style: const TextStyle(fontSize: 13, color: muted),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    decoration: BoxDecoration(
+                      color: background,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: color,
+                      ),
+                    ),
                   ),
                   for (final entry in parties.entries)
                     Text(
@@ -162,7 +183,7 @@ class _LedgerPageState extends State<LedgerPage> {
           ? <Item>[]
           : monthlyBills(widget.controller.data, widget.team, month);
       return PageContent(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 80),
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 80),
         children: [
           SegmentedButton<bool>(
             style: const ButtonStyle(visualDensity: VisualDensity.compact),

@@ -41,7 +41,7 @@ void main() {
     expect(() => ExactAmount.parse('-1'), throwsFormatException);
     expect(() => ExactAmount.parse('1e3'), throwsFormatException);
   });
-  test('每月按币种汇总，勾选只影响顶部收支，内转不计入', () {
+  test('每月按币种汇总，两种收支勾选分别生效，内转不计入', () {
     final data = WorkspaceData();
     const who = Identity.guest;
     for (final value in [
@@ -67,6 +67,16 @@ void main() {
         'currency': 'USD',
         'include_in_totals': 0,
       },
+      {
+        ...bill('不计入支出统计', '2026-11-07', 'expense', '5'),
+        'currency': 'USD',
+        billPartyStatsField: 0,
+      },
+      {
+        ...bill('不计入收入统计', '2026-11-08', 'income', '7'),
+        'currency': 'USD',
+        billPartyStatsField: '0',
+      },
       bill('旧月', '2026-10-01', 'expense', '77'),
     ]) {
       saveBill(data, who, -1, newId(Tables.bill), value, [], {});
@@ -78,9 +88,9 @@ void main() {
     expect(totals.expenseByParty['工行卡'].toString(), '0.30');
     expect(totals.expenseByParty['微信余额'].toString(), '1.2300');
     expect(totals.incomeByParty['工行卡'].toString(), '9.99');
-    expect(groups['USD']!.expense.toString(), '19.99');
+    expect(groups['USD']!.expense.toString(), '24.99');
     expect(groups['USD']!.expenseByParty['工行卡'].toString(), '28.99');
-    expect(groups['USD']!.income.toString(), '1.00');
+    expect(groups['USD']!.income.toString(), '8.00');
     expect(groups['USD']!.incomeByParty['工行卡'].toString(), '3.05');
     expect(archivedBillMonths(data, -1, DateTime(2026, 11, 20)), ['2026-10']);
   });
