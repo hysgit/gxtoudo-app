@@ -74,7 +74,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('登录后追踪价格'), findsOneWidget);
   });
-  testWidgets('归档按年、月逐级展开，选择后显示该月账单和汇总', (tester) async {
+  testWidgets('本月和归档均按收支方逐行显示支出和收入汇总', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(320, 850));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     final controller = TodoController(MemoryRepository());
     addTearDown(controller.dispose);
     await controller.initialize();
@@ -98,22 +100,24 @@ void main() {
         );
       }
       for (final date in ['2026-11-01', '2026-10-01']) {
-        for (final (type, amount) in [
-          ('expense', '2.00'),
-          ('income', '3.00'),
+        for (final (type, amount, party) in [
+          ('expense', '2.00', '微信余额'),
+          ('income', '3.00', '微信余额'),
+          ('expense', '4.00', '支付宝余额'),
+          ('income', '7.50', '工行卡'),
         ]) {
           saveBill(
             data,
             who,
             -1,
-            '$date-$type',
+            '$date-$type-$party',
             {
               'name': '单独统计',
               'date': date,
               'type': type,
               'amount': amount,
               'channel': '微信',
-              'party': '微信余额',
+              'party': party,
               'include_in_totals': 0,
             },
             [],
@@ -154,14 +158,45 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+
+    void expectPartyTable() {
+      final table = find.byType(Table);
+      Finder cell(String value) =>
+          find.descendant(of: table, matching: find.text(value));
+
+      expect(tester.widget<Table>(table).children, hasLength(4));
+      final partyHeader = tester.getCenter(cell('支出收入方'));
+      final expenseHeader = tester.getCenter(cell('支出汇总'));
+      final incomeHeader = tester.getCenter(cell('收入汇总'));
+      expect(expenseHeader.dx, greaterThan(partyHeader.dx));
+      expect(incomeHeader.dx, greaterThan(expenseHeader.dx));
+      final expenseStyle = tester.widget<Text>(cell('支出汇总')).style;
+      final incomeStyle = tester.widget<Text>(cell('收入汇总')).style;
+      expect(expenseStyle?.color, isNot(incomeStyle?.color));
+
+      final party = tester.getCenter(cell('微信余额'));
+      final expense = tester.getCenter(cell('2.10 元'));
+      final income = tester.getCenter(cell('3.00 元'));
+      expect(expense.dy, party.dy);
+      expect(income.dy, party.dy);
+      expect(expense.dx, expenseHeader.dx);
+      expect(income.dx, incomeHeader.dx);
+      final missing = tester.getCenter(cell('—').first);
+      final otherMissing = tester.getCenter(cell('—').last);
+      expect(
+        [missing.dy, otherMissing.dy],
+        unorderedEquals([
+          tester.getCenter(cell('支付宝余额')).dy,
+          tester.getCenter(cell('工行卡')).dy,
+        ]),
+      );
+      expect(cell('—'), findsNWidgets(2));
+    }
+
     expect(find.textContaining('账单 2026-11-01'), findsOneWidget);
     expect(find.text('总支出 0.10 元'), findsOneWidget);
     expect(find.text('总收入 0.00 元'), findsOneWidget);
-    expect(find.text('微信余额  2.10 元'), findsOneWidget);
-    expect(find.text('微信余额  3.00 元'), findsOneWidget);
-    final expenseLabel = tester.widget<Text>(find.text('支出统计'));
-    final incomeLabel = tester.widget<Text>(find.text('收入统计'));
-    expect(expenseLabel.style?.color, isNot(incomeLabel.style?.color));
+    expectPartyTable();
     expect(find.text('0.10 元'), findsOneWidget);
     await tester.tap(find.text('已归档'));
     await tester.pumpAndSettle();
@@ -172,10 +207,9 @@ void main() {
     expect(find.textContaining('账单 2026-10-01'), findsOneWidget);
     expect(find.text('总支出 0.10 元'), findsOneWidget);
     expect(find.text('总收入 0.00 元'), findsOneWidget);
-    expect(find.text('微信余额  2.10 元'), findsOneWidget);
-    expect(find.text('微信余额  3.00 元'), findsOneWidget);
+    expectPartyTable();
     expect(find.text('总支出 USD 2.50'), findsOneWidget);
-    expect(find.text('工行信用卡  USD 2.50'), findsNothing);
+    expect(find.text('工行信用卡'), findsNothing);
     expect(find.text('USD 2.50'), findsOneWidget);
     expect(find.textContaining('账单 2026-11-01'), findsNothing);
   });

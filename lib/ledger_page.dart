@@ -89,6 +89,38 @@ class _LedgerPageState extends State<LedgerPage> {
   bool archive = false;
   String? selectedMonth;
   Widget summary(BillTotals totals, String currency) {
+    const expenseColor = Color(0xffa74635);
+    const incomeColor = Color(0xff1e6c53);
+    final parties = {
+      ...totals.expenseByParty.keys,
+      ...totals.incomeByParty.keys,
+    };
+
+    Widget cell(
+      String label, {
+      Color color = ink,
+      bool heading = false,
+      bool numeric = false,
+    }) => Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+      child: Text(
+        label,
+        textAlign: numeric ? TextAlign.end : TextAlign.start,
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: heading ? FontWeight.w600 : FontWeight.w400,
+          color: color,
+          fontFeatures: numeric ? const [FontFeature.tabularFigures()] : null,
+        ),
+      ),
+    );
+
+    Widget amountCell(ExactAmount? amount, Color color) => cell(
+      amount == null ? '—' : billAmountLabel(amount.toString(), currency),
+      color: amount == null ? muted : color,
+      numeric: true,
+    );
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Column(
@@ -115,49 +147,44 @@ class _LedgerPageState extends State<LedgerPage> {
                 ),
             ],
           ),
-          for (final (label, parties, color, background) in [
-            (
-              '支出统计',
-              totals.expenseByParty,
-              const Color(0xffa74635),
-              const Color(0xfffbe9e4),
-            ),
-            (
-              '收入统计',
-              totals.incomeByParty,
-              const Color(0xff1e6c53),
-              const Color(0xffe4f3ea),
-            ),
-          ])
-            if (parties.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Wrap(
-                spacing: 16,
-                runSpacing: 4,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    decoration: BoxDecoration(
-                      color: background,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: color,
-                      ),
-                    ),
-                  ),
-                  for (final entry in parties.entries)
-                    Text(
-                      '${entry.key}  ${billAmountLabel(entry.value.toString(), currency)}',
-                      style: const TextStyle(fontSize: 13, color: muted),
-                    ),
-                ],
+          if (parties.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Table(
+              columnWidths: const {0: FlexColumnWidth(1.15)},
+              defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+              border: const TableBorder(
+                horizontalInside: BorderSide(color: line),
               ),
-            ],
+              children: [
+                TableRow(
+                  decoration: const BoxDecoration(color: paper),
+                  children: [
+                    cell('支出收入方', heading: true),
+                    cell(
+                      '支出汇总',
+                      color: expenseColor,
+                      heading: true,
+                      numeric: true,
+                    ),
+                    cell(
+                      '收入汇总',
+                      color: incomeColor,
+                      heading: true,
+                      numeric: true,
+                    ),
+                  ],
+                ),
+                for (final party in parties)
+                  TableRow(
+                    children: [
+                      cell(party.isEmpty ? '未填写' : party),
+                      amountCell(totals.expenseByParty[party], expenseColor),
+                      amountCell(totals.incomeByParty[party], incomeColor),
+                    ],
+                  ),
+              ],
+            ),
+          ],
         ],
       ),
     );
