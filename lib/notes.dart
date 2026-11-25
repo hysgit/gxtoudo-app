@@ -4,6 +4,23 @@ import 'package:crypto/crypto.dart';
 
 import 'domain.dart';
 
+enum NoteSection {
+  quick('速记'),
+  essence('精髓'),
+  core('内核');
+
+  const NoteSection(this.label);
+  final String label;
+}
+
+const noteSectionField = 'notebook_section';
+
+NoteSection noteSection(Item note) => switch (note.data[noteSectionField]) {
+  'essence' => NoteSection.essence,
+  'core' => NoteSection.core,
+  _ => NoteSection.quick,
+};
+
 List<Fields> noteAttachments(Item? note) {
   final raw = text(note?.data['attachments']);
   if (raw.isEmpty) return [];
@@ -20,9 +37,17 @@ DateTime? noteCreated(Item note) {
 String noteCreatedLabel(Item note) {
   final value = noteCreated(note);
   if (value == null) return '创建时间未知';
-  String pad(int n) => n.toString().padLeft(2, '0');
-  return '${value.year}-${pad(value.month)}-${pad(value.day)} '
-      '${pad(value.hour)}:${pad(value.minute)}';
+  return '${_dateLabel(value)} ${_pad(value.hour)}:${_pad(value.minute)}';
+}
+
+String _pad(int value) => value.toString().padLeft(2, '0');
+String _dateLabel(DateTime date) =>
+    '${date.year}-${_pad(date.month)}-${_pad(date.day)}';
+
+String notebookTitle(Item note) {
+  final created = noteCreated(note);
+  final title = noteTitle(note);
+  return created == null ? title : '${_dateLabel(created)} $title';
 }
 
 String noteTitle(Item note) {
@@ -106,6 +131,7 @@ void saveConversation(
   String title,
   List<Fields> messages,
   Map<String, Fields> localMedia, {
+  NoteSection section = NoteSection.quick,
   Set<String> removed = const {},
 }) {
   data.save(who, team, Tables.note, uid, {
@@ -114,6 +140,9 @@ void saveConversation(
     'conversation_version': 1,
     'attachments': '[]',
     'status': 0,
+    if (section != NoteSection.quick &&
+        data.get(team, Tables.note, uid) == null)
+      noteSectionField: section.name,
   });
   for (final message in messages) {
     final id = text(message['uid']);

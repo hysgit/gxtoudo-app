@@ -24,11 +24,13 @@ class NoteEditor extends StatefulWidget {
     super.key,
     this.note,
     this.files,
+    this.section = NoteSection.quick,
   });
   final TodoController controller;
   final int team;
   final Item? note;
   final MediaFiles? files;
+  final NoteSection section;
   @override
   State<NoteEditor> createState() => _NoteEditorState();
 }
@@ -42,6 +44,11 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
   late final uid = widget.note?.uid ?? newId(Tables.note);
   late final scope = widget.controller.identity.scope;
   late final files = widget.files ?? MediaFiles();
+  late final section = widget.note == null
+      ? widget.section
+      : noteSection(widget.note!);
+  bool get isNotebook => section != NoteSection.quick;
+  String get recordLabel => isNotebook ? '记事本' : '便签';
   late bool hasSaved = widget.note != null;
   final overrides = <String, Fields>{};
   final localMedia = <String, Fields>{};
@@ -350,7 +357,7 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
                   .get(widget.team, Tables.note, uid)
                   ?.data['title']
                   ?.toString() ??
-              '新便签'
+              '新$recordLabel'
         : title.text.trim();
     final changed = {...overrides};
     final media = {...localMedia};
@@ -381,6 +388,7 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
               )
               .toList(),
           media,
+          section: section,
           removed: deleted,
         );
       });
@@ -484,7 +492,13 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
   }
 
   Future<void> removeNote() async {
-    if (!await confirm(context, '删除便签？', '便签及会话内容将被删除，随后自动同步。')) return;
+    if (!await confirm(
+      context,
+      '删除$recordLabel？',
+      '$recordLabel及其中的内容将被删除，随后自动同步。',
+    )) {
+      return;
+    }
     if (!mounted) return;
     titleTimer?.cancel();
     setState(() => busy = true);
@@ -518,12 +532,14 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
       backgroundColor: const Color(0xffededed),
       appBar: AppBar(
         title: Text(
-          hasSaved ? (title.text.trim().isEmpty ? '新便签' : title.text) : '新建便签',
+          hasSaved
+              ? (title.text.trim().isEmpty ? '新$recordLabel' : title.text)
+              : '新建$recordLabel',
         ),
         actions: [
           if (hasSaved)
             IconButton(
-              tooltip: '删除便签',
+              tooltip: '删除$recordLabel',
               onPressed: busy || recording ? null : removeNote,
               icon: const Icon(Icons.delete_outline),
             ),
@@ -538,8 +554,8 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
                 controller: title,
                 enabled: !busy,
                 maxLength: 100,
-                decoration: const InputDecoration(
-                  labelText: '便签标题',
+                decoration: InputDecoration(
+                  labelText: isNotebook ? '笔记题目' : '便签标题',
                   counterText: '',
                 ),
               ),

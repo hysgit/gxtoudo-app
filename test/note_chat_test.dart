@@ -46,6 +46,7 @@ void main() {
             controller,
             -1,
             files: MediaFiles(root: Directory('${folder.path}/files')),
+            section: kind == 'image' ? NoteSection.essence : NoteSection.quick,
           ),
         ),
       );
@@ -73,12 +74,90 @@ void main() {
       await tester.runAsync(() => source.delete());
       final data = await store.read(Identity.guest.scope);
       final note = data.list(-1, Tables.note).single;
+      expect(
+        noteSection(note),
+        kind == 'image' ? NoteSection.essence : NoteSection.quick,
+      );
       expect(noteMessages(data, note).single.data['kind'], kind);
       expect(data.media.length, 1);
       expect(find.text('保存'), findsNothing);
       await tester.pumpWidget(const SizedBox.shrink());
     });
   }
+
+  testWidgets('速记保留旧便签，精髓和内核按创建年月分组并独立新增', (tester) async {
+    final store = MemoryRepository();
+    final controller = TodoController(store);
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    await controller.mutate((data, who) {
+      for (final (uid, title, section, created) in [
+        ('quick', '旧便签', NoteSection.quick, DateTime(2025, 11, 7, 12)),
+        ('essence-new', '本年记录', NoteSection.essence, DateTime(2025, 11, 5, 12)),
+        ('essence-old', '往年记录', NoteSection.essence, DateTime(2024, 3, 6, 12)),
+        ('core', '内核记录', NoteSection.core, DateTime(2025, 2, 1, 12)),
+      ]) {
+        data.save(who, -1, Tables.note, uid, {
+          'name': title,
+          'title': title,
+          'created_at': created.toUtc().toString().split('.').first,
+          if (section != NoteSection.quick) noteSectionField: section.name,
+        });
+      }
+    });
+
+    await tester.pumpWidget(TodoApp(controller));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('便签'));
+    await tester.pumpAndSettle();
+    expect(find.text('旧便签'), findsOneWidget);
+    for (final label in ['搜索便签文字', '年份', '按日期', '全部']) {
+      expect(find.text(label), findsNothing);
+    }
+
+    await tester.tap(find.text('精髓'));
+    await tester.pumpAndSettle();
+    expect(find.text('旧便签'), findsNothing);
+    expect(find.text('2025 年'), findsOneWidget);
+    expect(find.text('11 月'), findsOneWidget);
+    expect(find.text('2025-11-05 本年记录'), findsOneWidget);
+    expect(find.text('2024-03-06 往年记录'), findsNothing);
+    await tester.tap(find.text('2024 年'));
+    await tester.pumpAndSettle();
+    expect(find.text('3 月'), findsOneWidget);
+    expect(find.text('2024-03-06 往年记录'), findsOneWidget);
+
+    await tester.tap(find.text('内核'));
+    await tester.pumpAndSettle();
+    expect(find.text('2025-11-05 本年记录'), findsNothing);
+    expect(find.text('2025-02-01 内核记录'), findsOneWidget);
+    await tester.tap(find.byTooltip('新建记事本'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextFormField, '笔记题目'), '新内核');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    final input = find.byWidgetPredicate(
+      (widget) => widget is TextField && widget.decoration?.hintText == '输入内容',
+    );
+    for (final content in ['第一条笔记', '第二条笔记']) {
+      await tester.enterText(input, content);
+      await tester.tap(find.text('发送'));
+      await tester.pumpAndSettle();
+    }
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    final saved = await store.read(Identity.guest.scope);
+    final note = saved
+        .list(-1, Tables.note)
+        .firstWhere((row) => row.name == '新内核');
+    expect(noteSection(note), NoteSection.core);
+    expect(noteCreated(note), isNotNull);
+    expect(find.text(notebookTitle(note)), findsOneWidget);
+    expect(noteMessages(saved, note).map((row) => row.data['content']), [
+      '第一条笔记',
+      '第二条笔记',
+    ]);
+  });
 
   testWidgets('独立标题显示在列表，聊天正文分条展示，保存只写本机并能重启读取', (tester) async {
     final store = MemoryRepository();

@@ -59,9 +59,7 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
   bool search = false;
   bool _calendarExpanded = false;
   double _calendarDrag = 0;
-  int? noteYear;
-  DateTime? noteDay;
-  String noteQuery = '';
+  NoteSection notesSection = NoteSection.quick;
   bool drawerOpen = false;
 
   @override
@@ -111,8 +109,14 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
     ),
   );
 
-  void editNote(Item? note) =>
-      go(NoteEditor(controller, note?.team ?? controller.team, note: note));
+  void editNote(Item? note) => go(
+    NoteEditor(
+      controller,
+      note?.team ?? controller.team,
+      note: note,
+      section: notesSection,
+    ),
+  );
   void editBill(Item? bill) =>
       go(BillEditor(controller, bill?.team ?? controller.team, bill: bill));
 
@@ -156,9 +160,6 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
       tag = '';
       search = false;
       query = '';
-      noteYear = null;
-      noteDay = null;
-      noteQuery = '';
     });
     controller.selectSpace(spaces[next].id);
   }
@@ -265,7 +266,7 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
               : FloatingActionButton(
                   tooltip: switch (tab) {
                     3 => '新建账单',
-                    4 => '新建便签',
+                    4 => notesSection == NoteSection.quick ? '新建便签' : '新建记事本',
                     _ => '新建任务',
                   },
                   child: const Icon(Icons.add),
@@ -842,115 +843,111 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
   }
 
   Widget renderNotes() {
-    final all = controller.data.list(controller.team, Tables.note).toList();
-    final years =
-        all
-            .map(noteCreated)
-            .whereType<DateTime>()
-            .map((date) => date.year)
-            .toSet()
-            .toList()
-          ..sort((a, b) => b.compareTo(a));
-    if (noteYear != null && !years.contains(noteYear)) noteYear = null;
+    final quick = notesSection == NoteSection.quick;
     final notes = filterNotes(
-      all,
-      year: noteYear,
-      day: noteDay,
-      query: noteQuery,
-      data: controller.data,
+      controller.data
+          .list(controller.team, Tables.note)
+          .where((note) => noteSection(note) == notesSection),
     );
     return PageContent(
+      key: ValueKey((controller.team, notesSection)),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
       children: [
-        TextFormField(
-          decoration: const InputDecoration(
-            labelText: '搜索便签文字',
-            prefixIcon: Icon(Icons.search),
-          ),
-          onChanged: (value) => setState(() => noteQuery = value),
-        ),
-        const SizedBox(height: 12),
-        DropdownButtonFormField<int>(
-          key: ValueKey('note-year-${controller.team}-$noteYear'),
-          initialValue: noteYear ?? 0,
-          decoration: const InputDecoration(labelText: '年份'),
-          items: [
-            const DropdownMenuItem(value: 0, child: Text('全部年份')),
-            for (final year in years)
-              DropdownMenuItem(value: year, child: Text('$year 年')),
+        SegmentedButton<NoteSection>(
+          style: const ButtonStyle(visualDensity: VisualDensity.compact),
+          segments: [
+            for (final section in NoteSection.values)
+              ButtonSegment(value: section, label: Text(section.label)),
           ],
-          onChanged: (value) => setState(() {
-            noteYear = value == 0 ? null : value;
-            noteDay = null;
-          }),
+          selected: {notesSection},
+          onSelectionChanged: (value) =>
+              setState(() => notesSection = value.single),
         ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          children: [
-            FilterChip(
-              label: const Text('全部'),
-              selected: noteYear == null && noteDay == null,
-              onSelected: (_) => setState(() {
-                noteYear = null;
-                noteDay = null;
-              }),
-            ),
-            ActionChip(
-              avatar: const Icon(Icons.calendar_today_outlined, size: 18),
-              label: Text(
-                noteDay == null
-                    ? '按日期'
-                    : '${noteDay!.year}-${noteDay!.month}-${noteDay!.day}',
-              ),
-              onPressed: () async {
-                final day = await showDatePicker(
-                  context: context,
-                  initialDate: noteDay ?? DateTime.now(),
-                  firstDate: DateTime(1970),
-                  lastDate: DateTime(2100),
-                );
-                if (day != null && mounted) {
-                  setState(() {
-                    noteDay = day;
-                    noteYear = null;
-                  });
-                }
-              },
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 4),
         if (notes.isEmpty)
           EmptyContent(
-            all.isEmpty ? '还没有便签' : '没有符合条件的便签',
+            quick ? '还没有便签' : '还没有记事本',
             icon: Icons.sticky_note_2_outlined,
-          ),
-        for (final note in notes) noteCard(note),
+          )
+        else if (quick)
+          for (final note in notes) noteCard(note)
+        else
+          ...notebookTree(notes),
       ],
     );
   }
 
-  Widget noteCard(Item note) => ListTile(
-    dense: true,
-    minTileHeight: 48,
-    visualDensity: VisualDensity.compact,
-    minVerticalPadding: 4,
-    minLeadingWidth: 24,
-    contentPadding: const EdgeInsets.symmetric(horizontal: 2),
-    leading: const Icon(Icons.sticky_note_2_outlined, color: blue, size: 20),
-    title: Text(
-      noteTitle(note),
-      maxLines: 2,
-      overflow: TextOverflow.ellipsis,
-      style: const TextStyle(color: ink, fontSize: 16),
-    ),
-    subtitle: Text(
-      noteCreatedLabel(note),
-      style: const TextStyle(color: muted, fontSize: 12),
-    ),
-    onTap: () => editNote(note),
-  );
+  Iterable<Widget> notebookTree(List<Item> notes) sync* {
+    final years = <int, Map<int, List<Item>>>{};
+    final undated = <Item>[];
+    for (final note in notes) {
+      final created = noteCreated(note);
+      if (created == null) {
+        undated.add(note);
+        continue;
+      }
+      final months = years.putIfAbsent(created.year, () => {});
+      months.putIfAbsent(created.month, () => []).add(note);
+    }
+    for (final entry in years.entries) {
+      yield ExpansionTile(
+        key: PageStorageKey((controller.team, notesSection, entry.key)),
+        dense: true,
+        visualDensity: VisualDensity.compact,
+        tilePadding: const EdgeInsets.symmetric(horizontal: 4),
+        childrenPadding: const EdgeInsets.only(left: 14),
+        initiallyExpanded: entry.key == years.keys.first,
+        title: Text('${entry.key} 年'),
+        children: [
+          for (final month in entry.value.entries)
+            ExpansionTile(
+              key: PageStorageKey((
+                controller.team,
+                notesSection,
+                entry.key,
+                month.key,
+              )),
+              dense: true,
+              visualDensity: VisualDensity.compact,
+              tilePadding: const EdgeInsets.symmetric(horizontal: 4),
+              childrenPadding: const EdgeInsets.only(left: 14),
+              initiallyExpanded: month.key == entry.value.keys.first,
+              title: Text('${month.key} 月'),
+              children: [for (final note in month.value) noteCard(note)],
+            ),
+        ],
+      );
+    }
+    for (final note in undated) {
+      yield noteCard(note);
+    }
+  }
+
+  Widget noteCard(Item note) {
+    final quick = noteSection(note) == NoteSection.quick;
+    return ListTile(
+      dense: true,
+      minTileHeight: 48,
+      visualDensity: VisualDensity.compact,
+      minVerticalPadding: 4,
+      minLeadingWidth: 24,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 2),
+      leading: const Icon(Icons.sticky_note_2_outlined, color: blue, size: 20),
+      title: Text(
+        quick ? noteTitle(note) : notebookTitle(note),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(color: ink, fontSize: 16),
+      ),
+      subtitle: quick
+          ? Text(
+              noteCreatedLabel(note),
+              style: const TextStyle(color: muted, fontSize: 12),
+            )
+          : null,
+      onTap: () => editNote(note),
+    );
+  }
 
   Widget renderSearch(List<Task> tasks) {
     final needle = query.trim().toLowerCase();
