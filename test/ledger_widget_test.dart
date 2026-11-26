@@ -39,7 +39,7 @@ void main() {
     expect(restored.list(-1, Tables.billOption).single.name, '测试支付方式');
   });
 
-  testWidgets('AI 位于时间轴和记账之间，追踪位于便签之后', (tester) async {
+  testWidgets('底部显示任务、时间轴、AI、记账和便签', (tester) async {
     await tester.binding.setSurfaceSize(const Size(393, 852));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     tester.view.devicePixelRatio = 1;
@@ -56,7 +56,7 @@ void main() {
       bar.destinations.whereType<NavigationDestination>().map(
         (item) => item.label,
       ),
-      ['任务', '时间轴', 'AI', '记账', '便签', '追踪'],
+      ['任务', '时间轴', 'AI', '记账', '便签'],
     );
     expect(find.text('全部'), findsOneWidget);
     expect(tester.getSize(find.byType(AppBar)).height, 118);
@@ -70,9 +70,6 @@ void main() {
     await tester.tap(find.text('AI'));
     await tester.pumpAndSettle();
     expect(find.text('登录后使用 AI'), findsOneWidget);
-    await tester.tap(find.text('追踪'));
-    await tester.pumpAndSettle();
-    expect(find.text('登录后追踪价格'), findsOneWidget);
   });
   testWidgets('本月和归档均按收支方逐行显示支出和收入汇总', (tester) async {
     await tester.binding.setSurfaceSize(const Size(320, 850));

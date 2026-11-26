@@ -16,7 +16,6 @@ import 'bill_editor.dart';
 import 'ledger_page.dart';
 import 'record_history_page.dart';
 import 'ai_page.dart';
-import 'price_page.dart';
 
 class TodoApp extends StatelessWidget {
   const TodoApp(this.controller, {super.key, this.onReminder, this.onResume});
@@ -182,7 +181,7 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
         controller.identity,
         controller.team,
       );
-      final serviceTab = tab == 2 || tab == 5;
+      final serviceTab = tab == 2;
       return SpaceSwipe(
         enabled: !serviceTab && !drawerOpen && controller.spaces.length > 1,
         onSwitch: switchSpace,
@@ -194,8 +193,6 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
             title: Text(
               tab == 2
                   ? 'AI 对话'
-                  : tab == 5
-                  ? '追踪'
                   : controller.space.name.isEmpty
                   ? '高效Todo'
                   : controller.space.name,
@@ -254,11 +251,7 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
                       controller.team,
                       onEdit: editBill,
                     ),
-                    4 => renderNotes(),
-                    _ => PricePage(
-                      controller,
-                      onLogin: () => go(AccountPage(controller)),
-                    ),
+                    _ => renderNotes(),
                   },
           ),
           floatingActionButton: serviceTab
@@ -307,7 +300,6 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
                 icon: Icon(Icons.sticky_note_2_outlined),
                 label: '便签',
               ),
-              NavigationDestination(icon: Icon(Icons.show_chart), label: '追踪'),
             ],
           ),
         ),
