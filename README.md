@@ -1,6 +1,6 @@
 # 高效Todo App
 
-Flutter 客户端使用一套 Dart 源码构建 Android、iOS 和 Windows 应用。本仓库包含 App 页面、离线数据、同步客户端和平台构建工程。Java 服务端在独立的 [gxtoudo-server](https://github.com/hysgit/gxtoudo-server) 仓库维护，使用 PostgreSQL 和 MinIO。
+Android 和 iOS 使用 Flutter。Windows 客户端使用 C++20、Win32、WinHTTP 和 Windows 自带的 SQLite，源码位于 `desktop/`。Java 服务端在独立的 [gxtoudo-server](https://github.com/hysgit/gxtoudo-server) 仓库维护，使用 PostgreSQL 和 MinIO。
 
 | 路径 | 内容 |
 | --- | --- |
@@ -12,7 +12,8 @@ Flutter 客户端使用一套 Dart 源码构建 Android、iOS 和 Windows 应用
 | `lib/api.dart` · `lib/sync.dart` · `lib/controller.dart` | 账户、服务端地址和增量同步 |
 | `lib/cloud_pages.dart` | 团队、消息、评论和参与人 |
 | `lib/reminders.dart` · `lib/backup_page.dart` | 系统提醒和个人空间备份 |
-| `android/` · `ios/` · `windows/` | 平台工程和签名配置 |
+| `android/` · `ios/` | 手机端平台工程和签名配置 |
+| `desktop/` | Windows 原生窗口、离线存储、同步、二维码登录和测试 |
 | `test/` | 业务规则、界面和 API 联调测试 |
 
 ## 开发
@@ -55,16 +56,22 @@ Bundle ID 为 `net.icycloud.fdtodolist`，部署目标为 iOS 15。iOS Simulator
 
 ## Windows 构建与登录
 
-在安装了 Flutter Windows 桌面工具链的 Windows 电脑上运行：
+安装 Visual Studio 的「使用 C++ 的桌面开发」工作负载、Windows 10/11 SDK、Git、CMake 3.25+ 和 Ninja。从 App 仓库根目录打开 x64 Native Tools Command Prompt 后运行。
 
-```powershell
-flutter pub get
-flutter build windows --release
+```bat
+cmake -S desktop -B desktop/out/x64 -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build desktop/out/x64
+ctest --test-dir desktop/out/x64 --output-on-failure
+cmake --install desktop/out/x64 --prefix desktop/out/package
 ```
 
-程序位于 `build/windows/x64/runner/Release/`。分发时保留整个目录，启动其中的 `gxtodo.exe`。
+首次配置从 GitHub 拉取固定版本的 JSON 和二维码库。构建后启动 `desktop/out/package/gxtodo.exe`。分发时附带同目录的 `licenses/`。
 
 打开桌面端后，在已登录的手机端进入「账户与服务端」→「扫码登录桌面端」。对照两端显示的核对码，在手机上确认。二维码有效期为 2 分钟，手机和桌面需连接同一高效 Todo 服务端。
+
+Windows 版读取旧桌面版的 `%APPDATA%\net.icycloud\gxtodo\gxtodo.db` 和同目录 `note-files`，可继续使用已有登录信息及记录。退出旧桌面进程后再启动新版。需要用隔离目录测试时，可传入 `gxtodo.exe --workspace <目录>`。
+
+桌面版提供任务、时间轴、记账、便签和 AI 对话。已有空间可切换，任务支持提醒设置、历史版本和回收站。便签编辑用本地保存，附件可选取本机文件。便签实时发送、文档内图片预览、麦克风录音和语音输入、Windows 本地闹铃及团队管理尚未实现。
 
 ## API 联调
 
