@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(gxtodo_desktop VERSION 7.8.6 LANGUAGES CXX RC)
+project(gxtodo_desktop VERSION 7.8.7 LANGUAGES CXX RC)
 
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
