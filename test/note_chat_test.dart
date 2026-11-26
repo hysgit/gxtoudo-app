@@ -8,6 +8,7 @@ import 'package:gxtodo/controller.dart';
 import 'package:gxtodo/domain.dart';
 import 'package:gxtodo/home.dart';
 import 'package:gxtodo/media_files.dart';
+import 'package:gxtodo/note_bubble.dart';
 import 'package:gxtodo/note_editor.dart';
 import 'package:gxtodo/notes.dart';
 import 'package:material_ui/material_ui.dart';
@@ -46,7 +47,6 @@ void main() {
             controller,
             -1,
             files: MediaFiles(root: Directory('${folder.path}/files')),
-            section: kind == 'image' ? NoteSection.essence : NoteSection.quick,
           ),
         ),
       );
@@ -74,10 +74,7 @@ void main() {
       await tester.runAsync(() => source.delete());
       final data = await store.read(Identity.guest.scope);
       final note = data.list(-1, Tables.note).single;
-      expect(
-        noteSection(note),
-        kind == 'image' ? NoteSection.essence : NoteSection.quick,
-      );
+      expect(noteSection(note), NoteSection.quick);
       expect(noteMessages(data, note).single.data['kind'], kind);
       expect(data.media.length, 1);
       expect(find.text('保存'), findsNothing);
@@ -137,13 +134,11 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
     final input = find.byWidgetPredicate(
-      (widget) => widget is TextField && widget.decoration?.hintText == '输入内容',
+      (widget) => widget is TextField && widget.decoration?.hintText == '内容',
     );
-    for (final content in ['第一条笔记', '第二条笔记']) {
-      await tester.enterText(input, content);
-      await tester.tap(find.text('发送'));
-      await tester.pumpAndSettle();
-    }
+    expect(find.text('发送'), findsNothing);
+    await tester.enterText(input, '第一段笔记\n\n第二段笔记');
+    await tester.pump();
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
     final saved = await store.read(Identity.guest.scope);
@@ -154,9 +149,109 @@ void main() {
     expect(noteCreated(note), isNotNull);
     expect(find.text(notebookTitle(note)), findsOneWidget);
     expect(noteMessages(saved, note).map((row) => row.data['content']), [
-      '第一条笔记',
-      '第二条笔记',
+      '第一段笔记\n\n第二段笔记',
     ]);
+  });
+
+  testWidgets('精髓旧正文原位可编辑，插入图片后保持正文顺序', (tester) async {
+    const recorder = MethodChannel('com.llfbandit.record/messages');
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      recorder,
+      (_) async => null,
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        recorder,
+        null,
+      ),
+    );
+    late Directory folder;
+    late File source;
+    await tester.runAsync(() async {
+      folder = await Directory.systemTemp.createTemp('todo-notebook-image-');
+      source = File('${folder.path}/source.png');
+      await source.writeAsBytes(
+        base64Decode(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jfusAAAAASUVORK5CYII=',
+        ),
+      );
+    });
+    addTearDown(() => tester.runAsync(() => folder.delete(recursive: true)));
+    final store = MemoryRepository();
+    final controller = TodoController(store, automatic: false);
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    await controller.mutate(
+      (data, who) => saveConversation(
+        data,
+        who,
+        -1,
+        '49-doc',
+        '读书笔记',
+        [
+          {
+            'uid': '50-first',
+            'kind': 'text',
+            'content': '第一段原文',
+            'entry_at': 1000,
+          },
+          {
+            'uid': '50-second',
+            'kind': 'text',
+            'content': '第二段原文',
+            'entry_at': 1000,
+          },
+        ],
+        {},
+        section: NoteSection.essence,
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: todoTheme(),
+        home: NoteEditor(
+          controller,
+          -1,
+          note: controller.data.get(-1, Tables.note, '49-doc'),
+          files: MediaFiles(root: Directory('${folder.path}/media')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('插入图片'), findsOneWidget);
+    expect(find.text('发送'), findsNothing);
+    expect(find.byType(NoteBubble), findsNothing);
+    final first = find.byKey(const ValueKey('50-first'));
+    expect(tester.widget<TextField>(first).controller!.text, '第一段原文');
+    await tester.enterText(first, '修改后的第一段');
+    await tester.pump();
+    final dynamic editor = tester.state(find.byType(NoteEditor));
+    var completed = false;
+    final addition =
+        editor.addFile(source.path, 'image', '原图.png') as Future<void>;
+    addition.then((_) => completed = true);
+    for (var attempt = 0; !completed && attempt < 100; attempt++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.idle();
+    }
+    expect(completed, isTrue);
+    await addition;
+    await tester.pumpAndSettle();
+
+    final saved = await store.read(Identity.guest.scope);
+    final entries = noteMessages(saved, saved.get(-1, Tables.note, '49-doc')!);
+    expect(entries.map((row) => row.data['kind']), ['text', 'image', 'text']);
+    expect(entries.first.data['content'], '修改后的第一段');
+    expect(entries.last.data['content'], '第二段原文');
+    expect(saved.media, hasLength(1));
+    expect(
+      tester.widget<NoteBubble>(find.byType(NoteBubble)).inDocument,
+      isTrue,
+    );
+    expect(find.text(messageTime(entries[1].data)), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 
   testWidgets('独立标题显示在列表，聊天正文分条展示，保存只写本机并能重启读取', (tester) async {

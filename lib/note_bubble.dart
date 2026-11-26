@@ -20,12 +20,14 @@ class NoteBubble extends StatefulWidget {
     required this.onLongPress,
     required this.onRetry,
     this.enabled = true,
+    this.inDocument = false,
   });
   final Fields entry, media;
   final MediaFiles files;
   final String scope;
   final VoidCallback onLongPress, onRetry;
   final bool enabled;
+  final bool inDocument;
   @override
   State<NoteBubble> createState() => _NoteBubbleState();
 }
@@ -177,8 +179,8 @@ class _NoteBubbleState extends State<NoteBubble> {
               borderRadius: BorderRadius.circular(10),
               child: Image.file(
                 file,
-                width: 240,
-                height: 200,
+                width: widget.inDocument ? double.infinity : 240,
+                height: widget.inDocument ? null : 200,
                 fit: BoxFit.contain,
                 cacheWidth: 720,
                 semanticLabel: '图片，点击查看原图',
@@ -245,38 +247,52 @@ class _NoteBubbleState extends State<NoteBubble> {
   }
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 16),
-    child: Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: Text(
-            messageTime(widget.entry),
-            style: const TextStyle(color: muted, fontSize: 12),
+  Widget build(BuildContext context) {
+    if (widget.inDocument) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: GestureDetector(
+            onLongPress: widget.enabled ? widget.onLongPress : null,
+            child: content(),
           ),
         ),
-        Align(
-          alignment: Alignment.centerRight,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: MediaQuery.sizeOf(context).width * 0.82,
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              messageTime(widget.entry),
+              style: const TextStyle(color: muted, fontSize: 12),
             ),
-            child: GestureDetector(
-              onLongPress: widget.enabled ? widget.onLongPress : null,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: widget.entry['kind'] == 'image'
-                      ? Colors.transparent
-                      : const Color(0xffb2ed83),
-                  borderRadius: BorderRadius.circular(10),
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.sizeOf(context).width * 0.82,
+              ),
+              child: GestureDetector(
+                onLongPress: widget.enabled ? widget.onLongPress : null,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: widget.entry['kind'] == 'image'
+                        ? Colors.transparent
+                        : const Color(0xffb2ed83),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: content(),
                 ),
-                child: content(),
               ),
             ),
           ),
-        ),
-      ],
-    ),
-  );
+        ],
+      ),
+    );
+  }
 }

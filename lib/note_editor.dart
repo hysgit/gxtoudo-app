@@ -53,6 +53,9 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
   final overrides = <String, Fields>{};
   final localMedia = <String, Fields>{};
   final removed = <String>{};
+  final notebookInputs = <String, TextEditingController>{};
+  String notebookDraft = newId(Tables.noteEntry);
+  String? notebookAnchor;
   final recorder = AudioRecorder();
   final speech = SpeechToText();
   bool busy = false,
@@ -69,7 +72,7 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    title.addListener(titleChanged);
+    title.addListener(scheduleSave);
     input.addListener(markDirty);
   }
 
@@ -88,10 +91,10 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
     if (!dirty && mounted) setState(() => dirty = true);
   }
 
-  void titleChanged() {
+  void scheduleSave() {
     markDirty();
     titleTimer?.cancel();
-    if (title.text.trim().isNotEmpty) {
+    if (isNotebook || title.text.trim().isNotEmpty) {
       titleTimer = Timer(
         const Duration(milliseconds: 350),
         () => unawaited(persist()),
@@ -103,6 +106,7 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
       if (recording) unawaited(stopRecording());
+      if (isNotebook && dirty && !recording) unawaited(persist());
       if (listening) unawaited(speech.stop());
     }
   }
@@ -116,8 +120,68 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
     unawaited(speech.cancel());
     title.dispose();
     input.dispose();
+    for (final controller in notebookInputs.values) {
+      controller.dispose();
+    }
     scroll.dispose();
     super.dispose();
+  }
+
+  List<Fields> notebookEntries() {
+    final values = messages();
+    if (values.lastOrNull?['kind'] != 'text') {
+      values.add({
+        'uid': notebookDraft,
+        'kind': 'text',
+        'content': '',
+        'entry_at': notebookEndTime(values),
+      });
+    }
+    return values;
+  }
+
+  int notebookEndTime(List<Fields> entries) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final last = integer(entries.lastOrNull?['entry_at']);
+    return now > last ? now : last + 1;
+  }
+
+  int notebookInsertTime() {
+    final entries = messages();
+    final index = entries.indexWhere((entry) => entry['uid'] == notebookAnchor);
+    if (index < 0 || index == entries.length - 1) {
+      return notebookEndTime(entries);
+    }
+    final inserted = integer(entries[index]['entry_at']) + 1;
+    // Keep the shared entry order when adjacent entries have the same timestamp.
+    var next = inserted + 1;
+    for (final entry in entries.skip(index + 1)) {
+      if (integer(entry['entry_at']) >= next) break;
+      final id = text(entry['uid']);
+      overrides[id] = {...?overrides[id], 'entry_at': next++};
+    }
+    return inserted;
+  }
+
+  TextEditingController notebookInput(Fields entry) =>
+      notebookInputs.putIfAbsent(
+        text(entry['uid']),
+        () => TextEditingController(text: text(entry['content'])),
+      );
+
+  void changeNotebookText(Fields entry, String content) {
+    final id = text(entry['uid']);
+    overrides[id] = {
+      if (id == notebookDraft) ...entry,
+      ...?overrides[id],
+      'content': content,
+    };
+    setState(() {
+      if (id == notebookDraft) notebookDraft = newId(Tables.noteEntry);
+      notebookAnchor = id;
+      dirty = true;
+    });
+    scheduleSave();
   }
 
   List<Fields> messages() {
@@ -161,6 +225,9 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
     final media = await files.importFile(File(path), kind);
     final id = text(media['client_media_id']);
     if (!mounted) return;
+    final at = isNotebook
+        ? notebookInsertTime()
+        : DateTime.now().millisecondsSinceEpoch;
     setState(() {
       localMedia[id] = {...media, 'note_id': uid, 'team_id': widget.team};
       final entry = newId(Tables.noteEntry);
@@ -171,12 +238,13 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
         'media_id': '',
         'media_name': name,
         'duration_ms': duration,
-        'entry_at': DateTime.now().millisecondsSinceEpoch,
+        'entry_at': at,
       };
+      if (isNotebook) notebookAnchor = entry;
       dirty = true;
     });
     await persist();
-    bottom();
+    if (!isNotebook) bottom();
   }
 
   Future<void> pickImage(bool camera) async {
@@ -298,11 +366,20 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
               )
               .firstOrNull ??
           locales.where((value) => value.localeId.startsWith('zh')).firstOrNull;
-      final selection = input.selection;
-      final start = selection.isValid ? selection.start : input.text.length;
-      final end = selection.isValid ? selection.end : input.text.length;
-      final prefix = input.text.substring(0, start);
-      final suffix = input.text.substring(end);
+      final notebookText = isNotebook
+          ? notebookEntries().where((entry) => entry['kind'] == 'text').toList()
+          : const <Fields>[];
+      final target =
+          notebookText
+              .where((entry) => entry['uid'] == notebookAnchor)
+              .firstOrNull ??
+          notebookText.lastOrNull;
+      final field = target == null ? input : notebookInput(target);
+      final selection = field.selection;
+      final start = selection.isValid ? selection.start : field.text.length;
+      final end = selection.isValid ? selection.end : field.text.length;
+      final prefix = field.text.substring(0, start);
+      final suffix = field.text.substring(end);
       await speech.listen(
         listenOptions: SpeechListenOptions(
           localeId: chinese?.localeId,
@@ -314,12 +391,13 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
           if (!mounted) return;
           final words = result.recognizedWords;
           if (prefix.length + words.length + suffix.length > 60000) return;
-          input.value = TextEditingValue(
+          field.value = TextEditingValue(
             text: '$prefix$words$suffix',
             selection: TextSelection.collapsed(
               offset: prefix.length + words.length,
             ),
           );
+          if (target != null) changeNotebookText(target, field.text);
         },
       );
       if (mounted) setState(() => listening = speech.isListening);
@@ -386,6 +464,14 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
                       ),
                     ),
               )
+              .map((entry) {
+                if (!isNotebook) return entry;
+                final id = text(entry['uid']);
+                final latest = data.get(widget.team, Tables.noteEntry, id);
+                return latest == null
+                    ? entry
+                    : {...latest.data, ...?changed[id], 'uid': id};
+              })
               .toList(),
           media,
           section: section,
@@ -522,6 +608,117 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
     }
   }
 
+  Widget entryPreview(Fields entry) {
+    final clientId = text(entry['client_media_id']);
+    final local =
+        localMedia[clientId] ?? widget.controller.data.media[clientId];
+    return NoteBubble(
+      key: ValueKey(entry['uid']),
+      entry: entry,
+      media: {...entry, ...?local},
+      files: files,
+      scope: scope,
+      inDocument: isNotebook,
+      enabled: !busy && !recording && !listening,
+      onLongPress: () => messageMenu(entry),
+      onRetry: () {
+        unawaited(
+          widget.controller.sync().catchError((Object error) {
+            if (mounted) message(context, '网络恢复后会自动同步');
+            return 0;
+          }),
+        );
+      },
+    );
+  }
+
+  List<Widget> mediaActions() => [
+    IconButton(
+      tooltip: isNotebook ? '插入图片' : '相册原图',
+      onPressed: busy || recording || listening ? null : () => pickImage(false),
+      icon: const Icon(Icons.photo_library_outlined),
+    ),
+    IconButton(
+      tooltip: '拍照',
+      onPressed: busy || recording || listening ? null : () => pickImage(true),
+      icon: const Icon(Icons.camera_alt_outlined),
+    ),
+    IconButton(
+      tooltip: recording ? '结束录音' : '录音',
+      onPressed: busy || listening ? null : toggleRecording,
+      icon: Icon(recording ? Icons.stop_circle_outlined : Icons.mic_none),
+    ),
+    IconButton(
+      tooltip: listening ? '结束识别' : '语音转文字',
+      onPressed: busy || recording ? null : dictate,
+      icon: Icon(
+        listening ? Icons.stop_circle_outlined : Icons.keyboard_voice_outlined,
+      ),
+    ),
+  ];
+
+  Widget recordingStatus() => Padding(
+    padding: const EdgeInsets.all(8),
+    child: Text(
+      recording
+          ? '正在录音 ${recordedSeconds ~/ 60}:${(recordedSeconds % 60).toString().padLeft(2, '0')}'
+          : '正在语音转文字…',
+    ),
+  );
+
+  Widget notebookPage() => ListenableBuilder(
+    listenable: widget.controller,
+    builder: (context, _) {
+      const plain = InputDecoration(
+        filled: false,
+        isDense: true,
+        contentPadding: EdgeInsets.symmetric(vertical: 6),
+        border: InputBorder.none,
+        enabledBorder: InputBorder.none,
+        focusedBorder: InputBorder.none,
+        counterText: '',
+      );
+      final entries = notebookEntries();
+      return PageContent(
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+        children: [
+          TextFormField(
+            controller: title,
+            enabled: !busy,
+            maxLength: 100,
+            maxLines: null,
+            style: const TextStyle(
+              color: ink,
+              fontSize: 34,
+              fontWeight: FontWeight.w700,
+              height: 1.2,
+            ),
+            decoration: plain.copyWith(hintText: '笔记题目'),
+            onTap: () => notebookAnchor = null,
+          ),
+          const SizedBox(height: 10),
+          if (recording || listening) recordingStatus(),
+          for (final entry in entries)
+            if (entry['kind'] == 'text')
+              TextField(
+                key: ValueKey(text(entry['uid'])),
+                controller: notebookInput(entry),
+                enabled: !busy && !listening,
+                minLines: identical(entry, entries.last) ? 4 : 1,
+                maxLines: null,
+                maxLength: 60000,
+                style: const TextStyle(color: ink, fontSize: 17, height: 1.55),
+                decoration: plain.copyWith(hintText: '内容'),
+                onTap: () => notebookAnchor = text(entry['uid']),
+                onChanged: (value) => changeNotebookText(entry, value),
+              )
+            else
+              entryPreview(entry),
+        ],
+      );
+    },
+  );
+
   @override
   Widget build(BuildContext context) => PopScope(
     canPop: leaving || (!dirty && !busy && !recording),
@@ -529,14 +726,18 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
       if (!didPop) unawaited(leave());
     },
     child: Scaffold(
-      backgroundColor: const Color(0xffededed),
+      backgroundColor: isNotebook ? Colors.white : const Color(0xffededed),
       appBar: AppBar(
-        title: Text(
-          hasSaved
-              ? (title.text.trim().isEmpty ? '新$recordLabel' : title.text)
-              : '新建$recordLabel',
-        ),
+        backgroundColor: isNotebook ? Colors.white : null,
+        title: isNotebook
+            ? null
+            : Text(
+                hasSaved
+                    ? (title.text.trim().isEmpty ? '新$recordLabel' : title.text)
+                    : '新建$recordLabel',
+              ),
         actions: [
+          if (isNotebook) ...mediaActions(),
           if (hasSaved)
             IconButton(
               tooltip: '删除$recordLabel',
@@ -546,166 +747,99 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
         ],
       ),
       body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: TextFormField(
-                controller: title,
-                enabled: !busy,
-                maxLength: 100,
-                decoration: InputDecoration(
-                  labelText: isNotebook ? '笔记题目' : '便签标题',
-                  counterText: '',
-                ),
-              ),
-            ),
-            Expanded(
-              child: ListenableBuilder(
-                listenable: widget.controller,
-                builder: (context, _) {
-                  final values = messages();
-                  if (values.isEmpty) {
-                    return const Center(
-                      child: Text(
-                        '在这里记录文字、图片和语音',
-                        style: TextStyle(color: muted),
-                      ),
-                    );
-                  }
-                  return ListView.builder(
-                    controller: scroll,
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                    itemCount: values.length,
-                    itemBuilder: (context, index) {
-                      final entry = values[index];
-                      final local =
-                          localMedia[text(entry['client_media_id'])] ??
-                          widget.controller.data.media[text(
-                            entry['client_media_id'],
-                          )];
-                      return NoteBubble(
-                        key: ValueKey(entry['uid']),
-                        entry: entry,
-                        media: {...entry, ...?local},
-                        files: files,
-                        scope: scope,
-                        enabled: !busy && !recording && !listening,
-                        onLongPress: () => messageMenu(entry),
-                        onRetry: () {
-                          unawaited(
-                            widget.controller.sync().catchError((Object error) {
-                              if (context.mounted) {
-                                message(context, '网络恢复后会自动同步');
-                              }
-                              return 0;
-                            }),
-                          );
-                        },
-                      );
-                    },
-                  );
-                },
-              ),
-            ),
-            if (recording || listening)
-              Padding(
-                padding: const EdgeInsets.all(8),
-                child: Text(
-                  recording
-                      ? '正在录音 ${recordedSeconds ~/ 60}:${(recordedSeconds % 60).toString().padLeft(2, '0')}'
-                      : '正在语音转文字…',
-                ),
-              ),
-            if (editing != null)
-              Row(
+        child: isNotebook
+            ? notebookPage()
+            : Column(
                 children: [
-                  const SizedBox(width: 16),
-                  const Text('编辑消息'),
-                  IconButton(
-                    tooltip: '取消编辑',
-                    onPressed: () => setState(() {
-                      editing = null;
-                      input.clear();
-                    }),
-                    icon: const Icon(Icons.close),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                    child: TextFormField(
+                      controller: title,
+                      enabled: !busy,
+                      maxLength: 100,
+                      decoration: InputDecoration(
+                        labelText: '便签标题',
+                        counterText: '',
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: ListenableBuilder(
+                      listenable: widget.controller,
+                      builder: (context, _) {
+                        final values = messages();
+                        if (values.isEmpty) {
+                          return const Center(
+                            child: Text(
+                              '在这里记录文字、图片和语音',
+                              style: TextStyle(color: muted),
+                            ),
+                          );
+                        }
+                        return ListView.builder(
+                          controller: scroll,
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                          itemCount: values.length,
+                          itemBuilder: (context, index) =>
+                              entryPreview(values[index]),
+                        );
+                      },
+                    ),
+                  ),
+                  if (recording || listening) recordingStatus(),
+                  if (editing != null)
+                    Row(
+                      children: [
+                        const SizedBox(width: 16),
+                        const Text('编辑消息'),
+                        IconButton(
+                          tooltip: '取消编辑',
+                          onPressed: () => setState(() {
+                            editing = null;
+                            input.clear();
+                          }),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
+                    ),
+                  ColoredBox(
+                    color: const Color(0xfff7f7f7),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
+                      child: Column(
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: input,
+                                  enabled: !busy && !listening,
+                                  minLines: 1,
+                                  maxLines: 5,
+                                  maxLength: 60000,
+                                  decoration: const InputDecoration(
+                                    hintText: '输入内容',
+                                    counterText: '',
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              FilledButton(
+                                onPressed: busy || recording || listening
+                                    ? null
+                                    : send,
+                                child: const Text('发送'),
+                              ),
+                            ],
+                          ),
+                          Wrap(spacing: 8, children: mediaActions()),
+                        ],
+                      ),
+                    ),
                   ),
                 ],
               ),
-            ColoredBox(
-              color: const Color(0xfff7f7f7),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
-                child: Column(
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: input,
-                            enabled: !busy && !listening,
-                            minLines: 1,
-                            maxLines: 5,
-                            maxLength: 60000,
-                            decoration: const InputDecoration(
-                              hintText: '输入内容',
-                              counterText: '',
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        FilledButton(
-                          onPressed: busy || recording || listening
-                              ? null
-                              : send,
-                          child: const Text('发送'),
-                        ),
-                      ],
-                    ),
-                    Wrap(
-                      spacing: 8,
-                      children: [
-                        IconButton(
-                          tooltip: '相册原图',
-                          onPressed: busy || recording || listening
-                              ? null
-                              : () => pickImage(false),
-                          icon: const Icon(Icons.photo_library_outlined),
-                        ),
-                        IconButton(
-                          tooltip: '拍照',
-                          onPressed: busy || recording || listening
-                              ? null
-                              : () => pickImage(true),
-                          icon: const Icon(Icons.camera_alt_outlined),
-                        ),
-                        IconButton(
-                          tooltip: recording ? '结束录音' : '录音',
-                          onPressed: busy || listening ? null : toggleRecording,
-                          icon: Icon(
-                            recording
-                                ? Icons.stop_circle_outlined
-                                : Icons.mic_none,
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: listening ? '结束识别' : '语音转文字',
-                          onPressed: busy || recording ? null : dictate,
-                          icon: Icon(
-                            listening
-                                ? Icons.stop_circle_outlined
-                                : Icons.keyboard_voice_outlined,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
       ),
     ),
   );
