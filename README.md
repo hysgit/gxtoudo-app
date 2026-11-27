@@ -1,6 +1,6 @@
 # 高效Todo App
 
-Android 和 iOS 使用 Flutter。Windows 客户端使用 C++20、Win32、WinHTTP 和 Windows 自带的 SQLite，源码位于 `desktop/`。Java 服务端在独立的 [gxtoudo-server](https://github.com/hysgit/gxtoudo-server) 仓库维护，使用 PostgreSQL 和 MinIO。
+Android 和 iOS 使用 Flutter。网页版位于 `web/`，在浏览器中使用移动 App 扫码登录。Java 服务端在独立的仓库维护，使用 PostgreSQL 和 MinIO。[gxtoudo-server](https://github.com/hysgit/gxtoudo-server)
 
 | 路径 | 内容 |
 | --- | --- |
@@ -13,7 +13,7 @@ Android 和 iOS 使用 Flutter。Windows 客户端使用 C++20、Win32、WinHTTP
 | `lib/cloud_pages.dart` | 团队、消息、评论和参与人 |
 | `lib/reminders.dart` · `lib/backup_page.dart` | 系统提醒和个人空间备份 |
 | `android/` · `ios/` | 手机端平台工程和签名配置 |
-| `desktop/` | Windows 原生窗口、离线存储、同步、二维码登录和测试 |
+| `web/` | 网页界面、同源 API 代理、浏览器持久化和测试 |
 | `test/` | 业务规则、界面和 API 联调测试 |
 
 ## 开发
@@ -54,26 +54,27 @@ Codemagic 配置位于仓库根目录的 `codemagic.yaml`。推送 `main` 会构
 
 Bundle ID 为 `net.icycloud.fdtodolist`，部署目标为 iOS 15。iOS Simulator 工作流仍用于生成模拟器构建包，不能安装到真机。
 
-## Windows 构建与登录
+## 启动网页版
 
-安装 Visual Studio 的「使用 C++ 的桌面开发」工作负载、Windows 10/11 SDK、Git、CMake 3.25+ 和 Ninja。从 App 仓库根目录打开 x64 Native Tools Command Prompt 后运行。
+使用 Node.js 24。从 App 仓库根目录运行。
 
-```bat
-cmake -S desktop -B desktop/out/x64 -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build desktop/out/x64
-ctest --test-dir desktop/out/x64 --output-on-failure
-cmake --install desktop/out/x64 --prefix desktop/out/package
+```powershell
+node web/server.mjs
 ```
 
-首次配置从 GitHub 拉取固定版本的 JSON 和二维码库。构建后启动 `desktop/out/package/gxtodo.exe`。分发时附带同目录的 `licenses/`。
+打开 [本机网页版](http://127.0.0.1:18120)。在已登录的手机 App 打开「账户与服务端」→「扫码登录桌面端」，核对页面与手机显示的六位数字后确认。该菜单沿用旧名称，二维码两分钟内有效。
 
-打开桌面端后，在已登录的手机端进入「账户与服务端」→「扫码登录桌面端」。对照两端显示的核对码，在手机上确认。二维码有效期为 2 分钟，手机和桌面需连接同一高效 Todo 服务端。
+网页版支持任务、周时间轴、精确金额记账、速记、精髓、内核和 AI 对话。登录后编辑先写入当前浏览器的 IndexedDB，页面打开期间自动同步到 Java 服务。离线时已打开的工作台可以继续编辑。旧桌面版已同步的记录会从同一账号下载。旧桌面版独有的本地数据需要从旧版导出或用旧版同步。
 
-Windows 版读取旧桌面版的 `%APPDATA%\net.icycloud\gxtodo\gxtodo.db` 和同目录 `note-files`，可继续使用已有登录信息及记录。退出旧桌面进程后再启动新版。需要用隔离目录测试时，可传入 `gxtodo.exe --workspace <目录>`。
+网页代理默认请求 `https://tudosrv.woslx.com`。容器部署时设置 `GXTODO_WEB_ORIGIN` 为用户实际访问的 HTTPS 来源，通过反向代理转发公网请求。按需设置 `GXTODO_UPSTREAM` 和手机端已配置的 `GXTODO_QR_ORIGIN`。代理持有会话并通过 HttpOnly Cookie 标识浏览器，重启后用户需要重新扫码。
 
-桌面版提供任务、时间轴、记账、便签和 AI 对话。已有空间可切换，任务支持提醒设置、历史版本和回收站。便签编辑用本地保存，附件可选取本机文件。便签实时发送、文档内图片预览、麦克风录音和语音输入、Windows 本地闹铃及团队管理尚未实现。
+```powershell
+docker build -t gxtodo-web web
+docker run --rm -p 127.0.0.1:18120:18120 -e GXTODO_WEB_ORIGIN=https://todo.example.com gxtodo-web
+node --test web/test/gateway.test.mjs
+```
 
-单击列表记录可查看详情。双击或按 Enter 打开编辑，任务左侧的勾选框和列表中的空格键都可切换完成状态。点击记账表中的支出或收入汇总可筛选其明细，再点一次恢复全部。Ctrl+N 新建，Ctrl+F 搜索当前页面，Ctrl+Enter 保存编辑或发送 AI 消息。任务可通过日历和时分控件设置计划时间。
+浏览器测试可运行 `node web/test/browser.mjs "<Chrome 或 Edge 的可执行文件路径>" "<截图目录>"`。它启动隔离的测试服务和浏览器配置。二维码绘制使用 [Nayuki QR Code generator](https://www.nayuki.io/page/qr-code-generator-library) 的 MIT 许可实现，声明见 `web/public/qrcodegen.mjs`。
 
 ## API 联调
 
