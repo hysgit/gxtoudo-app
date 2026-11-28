@@ -432,8 +432,9 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
     titleTimer?.cancel();
     final values = messages();
     if (!hasSaved && title.text.trim().isEmpty && values.isEmpty) return true;
-    if (!hasSaved && section.customFolders && title.text.trim().isEmpty)
+    if (!hasSaved && section.customFolders && title.text.trim().isEmpty) {
       return false;
+    }
     final savedTitle = title.text.trim().isEmpty
         ? widget.controller.data
                   .get(widget.team, Tables.note, uid)

@@ -980,8 +980,9 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
         ],
       ),
     );
-    if (submitted == null || !mounted || controller.identity.scope != scope)
+    if (submitted == null || !mounted || controller.identity.scope != scope) {
       return;
+    }
     final uid = newId(Tables.note);
     try {
       await controller.mutate((data, who) {
