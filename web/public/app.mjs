@@ -2,16 +2,18 @@ import { QrCode } from './qrcodegen.mjs';
 import { icon } from './icons.mjs';
 import { action, attachmentRow, h, pages, shell, signin } from './view.mjs';
 import { Workspace, addFiles, digest, request, stageFiles } from './api.mjs';
-import { T, dateKey, clock, whenText, billTypes, priorities, repeatNames, reminders,
+import { T, addDays, dateKey, clock, whenText, billTypes, priorities, repeatNames, reminders,
   get, list, id, put, remove, noteEntries, noteTitle, filesOf, saveTask, taskSnapshot,
   toggleTask, restoreTaskChecks, saveBill, billSnapshot, versions, captureVersion } from './domain.mjs';
 
 const app=document.querySelector('#app'), dialog=document.querySelector('#dialog'), mediaDialog=document.querySelector('#media-dialog');
 const today=()=>dateKey(new Date());
 const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+const initialPage=pageFromHash();
+const defaultFilter=page=>page==='tasks'?'open':'all';
 const ctx={
-  account:null, state:null, page:pageFromHash(), team:0, selected:null, query:'',
-  calendarDate:new Date(), calendarView:'month', day:null, filter:'all', month:today().slice(0,7), billFilter:null, archive:false,
+  account:null, state:null, page:initialPage, team:0, selected:null, query:'',
+  calendarDate:new Date(), calendarView:'month', day:null, filter:defaultFilter(initialPage), month:today().slice(0,7), billFilter:null, archive:false,
   noteSection:'quick', noteDraft:'', recording:false, canDictate:!!SpeechRecognition,
   ai:{ conversations:[], turns:[], thread:'', draft:'', file:null },
   status:'正在同步', syncFailed:false,
@@ -49,7 +51,7 @@ function render({ bottom=false }={}) {
     ? [active.selectionStart,active.selectionEnd] : null;
   const navKey=active instanceof HTMLElement && app.contains(active) && active.matches(':focus-visible')
     ? { ...active.dataset } : null;
-  const scrollIds=['note-messages','ai-turns'];
+  const scrollIds=['note-messages','ai-turns','quadrant-1','quadrant-2','quadrant-3','quadrant-4'];
   const previousScroll=Object.fromEntries(scrollIds.map(id=>[id,document.getElementById(id)?.scrollTop||0]));
   const collapsed=[...app.querySelectorAll('details:not([open]) > summary')].map(node=>node.textContent);
   app.innerHTML=ctx.account&&ctx.state?shell(ctx):signin(login);
@@ -215,14 +217,14 @@ function openDialog(title,body,handler=null,submitLabel='保存') {
   if (!dialog.open) dialog.showModal();
 }
 
-function editor(existing) {
+function editor(existing,rank=1) {
   const table=existing?.table||tableFor();
   const team=ctx.team, account=ctx.account, uid=existing?.uid||id(table);
   const title=table===T.bill?'账单':table===T.note?(ctx.noteSection==='quick'?'速记':'记事本'):'任务';
   const selectedSection=ctx.noteSection;
   let current, body;
   if (table===T.task) {
-    current=existing?taskSnapshot(ctx.state,existing,account.id):{ rank:1, alert:0, reminderMode:'both',repeat:0 };
+    current=existing?taskSnapshot(ctx.state,existing,account.id):{ rank, alert:0, reminderMode:'both',repeat:0 };
     const attachments=existing?filesOf(ctx.state,existing):[];
     body=`<div class="form-grid">
       ${field('任务名称',input('name',current.name,'maxlength="500" required autofocus'),true)}
@@ -337,6 +339,7 @@ function editor(existing) {
       ctx.archive=ctx.month!==today().slice(0,7);
       ctx.billFilter=null;
     }
+    if (table===T.task&&!existing&&ctx.page==='tasks'&&ctx.filter==='done') ctx.filter='open';
     ctx.selected=uid;
     render({ bottom:table===T.note });
     notify(table===T.note?'便签已保存':'已保存到本机');
@@ -707,20 +710,17 @@ function selectRow(uid) {
   ctx.selected=uid;
   render({ bottom:ctx.page==='notes' });
   if (matchMedia('(max-width: 940px)').matches) {
-    document.querySelector(ctx.page==='notes'?'.note-content':'.inspector:not(.placeholder-inspector)')?.scrollIntoView({block:'nearest'});
+    document.querySelector(ctx.page==='notes'?'.note-content':'.inspector')?.scrollIntoView({block:'nearest'});
   }
 }
 
 const minYear=1970, maxYear=9999;
-function moveCalendar(year, month, { monthView=false }={}) {
+function moveCalendar(year, month) {
   const target=new Date(year,month,1);
   if (target.getFullYear()<minYear||target.getFullYear()>maxYear) return;
   ctx.calendarDate=target;
-  if (monthView) ctx.calendarView='month';
-  if (ctx.day||ctx.page==='timeline') {
-    const day=monthView?1:Math.min(Number(ctx.day?.slice(8))||1,new Date(year,month+1,0).getDate());
-    ctx.day=dateKey(new Date(year,month,day));
-  }
+  const day=Math.min(Number(ctx.day?.slice(8))||1,new Date(year,month+1,0).getDate());
+  ctx.day=dateKey(new Date(year,month,day));
   ctx.selected=null;
   render();
 }
@@ -737,7 +737,7 @@ async function interact(button) {
       confirmAction('退出登录','未同步的改动会保留在此浏览器中，下次登录同一账号后继续同步。','退出',async()=>{
         await request('logout',{});void forgetAccount();
       });break;
-    case 'new':editor();break;
+    case 'new':editor(undefined,Number(data.rank)||1);break;
     case 'select':selectRow(data.id);break;
     case 'edit':editor(record(data.id||ctx.selected));break;
     case 'clear-selection':ctx.selected=null;render();break;
@@ -762,14 +762,11 @@ async function interact(button) {
         moveCalendar(Number(new FormData(form).get('year')),ctx.calendarDate.getMonth());
       },'跳转');
       break;
-    case 'calendar-month':
-      moveCalendar(ctx.calendarDate.getFullYear(),Number(data.month),{monthView:true});break;
     case 'day':
-      ctx.day=ctx.day===data.date&&ctx.page==='tasks'?null:data.date;
+      ctx.day=data.date;
       ctx.calendarDate=new Date(data.date+'T00:00:00');
       ctx.selected=null;render();break;
     case 'today':ctx.calendarDate=new Date();ctx.day=today();ctx.selected=null;render();break;
-    case 'clear-day':ctx.day=null;ctx.selected=null;render();break;
     case 'current-month':
       Object.assign(ctx,{archive:false,month:today().slice(0,7),billFilter:null,selected:null});render();break;
     case 'archive':
@@ -888,7 +885,7 @@ mediaDialog.addEventListener('close',()=>{
 window.addEventListener('hashchange',()=>{
   const page=pageFromHash(), previous=ctx.page;
   if (previous===page) return;
-  Object.assign(ctx,{page,selected:null,query:'',day:page==='timeline'?today():null,calendarDate:new Date(),filter:'all',noteDraft:''});
+  Object.assign(ctx,{page,selected:null,query:'',day:page==='timeline'?today():null,calendarDate:new Date(),filter:defaultFilter(page),noteDraft:''});
   if (page==='bills') ctx.billFilter=null;
   render();window.scrollTo(0,0);
   if (page==='ai') {
@@ -900,6 +897,20 @@ window.addEventListener('online',()=>void sync());
 window.addEventListener('keydown',event=>{
   if (event.isComposing || !ctx.account || event.defaultPrevented) return;
   const command=event.ctrlKey||event.metaKey;
+  const miniDay=event.target.closest?.('.mini-day');
+  const offset={ArrowLeft:-1,ArrowRight:1,ArrowUp:-7,ArrowDown:7}[event.key];
+  if (miniDay&&offset&&!command&&!event.altKey) {
+    event.preventDefault();
+    const target=dateKey(addDays(new Date(miniDay.dataset.date+'T00:00:00'),offset));
+    const cell=app.querySelector(`.mini-day[data-date="${target}"]`);
+    if (cell) {
+      const previous=app.querySelector('.mini-day[tabindex="0"]');
+      if (previous) previous.tabIndex=-1;
+      cell.tabIndex=0;
+      cell.focus();
+    }
+    return;
+  }
   if (command&&event.key.toLowerCase()==='k'&&!dialog.open) {
     const search=document.querySelector('#search');
     if (search) {event.preventDefault();search.focus();search.select();}

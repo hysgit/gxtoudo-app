@@ -85,16 +85,29 @@ try {
   await expectPage('document.querySelector("canvas")?.width > 150','登录二维码');
   await screenshot('login');
   backend.approve();
-  await expectPage(content('.task-list','整理本周的工作计划'),'任务同步');
+  await expectPage(content('#quadrant-2','整理本周的工作计划'),'任务同步进重要象限');
+  await expectPage(`document.querySelectorAll('.task-quadrant').length===4 &&
+    !document.querySelector('.calendar-card') &&
+    !!document.querySelector('[data-filter=open][aria-pressed=true]')`,'任务默认待完成且无日历');
+  await choose('.quadrant-add[data-rank="4"]');
+  await expectPage(`document.querySelector('#modal-form [name=rank]')?.value==='4'`,'象限新增预选优先级');
+  await choose('#dialog .dialog-head [data-act=close]');
+  await screenshot('tasks');
+  await goto('timeline');
   await expectPage('document.querySelector(".calendar-card").getBoundingClientRect().right < document.querySelector(".tasks-card").getBoundingClientRect().left','日历左、任务列表右');
   const monthMarks=await evaluate(`Array.from(document.querySelectorAll('.calendar-day:not(.outside)')).map(day=>[day.dataset.date,!!day.querySelector('.has-tasks')])`);
-  await screenshot('tasks');
   await choose('[data-act=calendar-view][data-view=year]');
   await expectPage('document.querySelectorAll(".mini-month").length===12','年视图 12 个月');
   const yearMarks=Object.fromEntries(await evaluate(`Array.from(document.querySelectorAll('.mini-day')).map(day=>[day.dataset.date,day.classList.contains('has-tasks')])`));
   assert.ok(monthMarks.some(([,marked])=>marked) && monthMarks.some(([,marked])=>!marked));
   for(const [day,marked] of monthMarks) assert.equal(yearMarks[day],marked,day);
   await expectPage(`getComputedStyle(document.querySelector('.mini-day.has-tasks'),'::after').width==='3px'`,'年历圆点可见');
+  const nextDay=await evaluate(`document.querySelector('.mini-day[aria-current=date]').nextElementSibling?.dataset.date ||
+    document.querySelector('.mini-day[aria-current=date]').previousElementSibling?.dataset.date`);
+  const selectedDay=nextDay||monthMarks.find(([,marked])=>marked)?.[0];
+  await choose(`.mini-day[data-date="${selectedDay}"]`);
+  await expectPage(`!!document.querySelector('.year-view .mini-day[data-date="${selectedDay}"][aria-pressed=true]') &&
+    document.querySelector('.tasks-card h2').textContent.endsWith('${Number(selectedDay.slice(8))}日的任务')`,'点击年历具体日期，右侧切当天且保持年视图');
   await screenshot('calendar-year');
   await choose('[data-act=calendar-year]');
   await set('#modal-form [name=year]','2028');
@@ -103,15 +116,18 @@ try {
   await choose('[data-act=calendar-prev]');
   await expectPage('document.querySelector(".mini-month").getAttribute("aria-label")==="2027年1月"','上一年');
   await choose('[data-act=calendar-next]');
-  await choose('[data-act=calendar-month][data-month="1"]');
+  await choose('.mini-day[data-date="2028-02-29"]');
+  await expectPage(`!!document.querySelector('.year-view .mini-day[data-date="2028-02-29"][aria-pressed=true]')`,'年历选中闰日');
+  await choose('[data-act=calendar-view][data-view=month]');
   await expectPage(`!!document.querySelector('[data-date="2028-02-29"]')`,'闰年月底');
   await choose('[data-act=calendar-view][data-view=year]');
-  await choose('[data-act=calendar-month][data-month="11"]');
+  await choose('.mini-day[data-date="2028-12-31"]');
+  await choose('[data-act=calendar-view][data-view=month]');
   await choose('[data-act=calendar-next]');
   await expectPage(`!!document.querySelector('[data-date="2029-01-31"]')`,'十二月至次年一月');
   await choose('[data-act=today]');
   await expectPage('document.querySelectorAll(".task-row").length===2','点今天筛选任务');
-  await choose('[data-act=clear-day]');
+  await goto('tasks');
   await expectPage('document.querySelectorAll(".task-row").length===6','恢复全部任务');
   await choose('[data-act=select][data-id="89-demo-0"]');
   await expectPage(content('.inspector','核对本周的三项重点'),'任务详情');
@@ -127,18 +143,21 @@ try {
   await expectPage('!document.querySelector("#media-dialog").open && document.querySelector("#dialog").open && document.querySelector("#modal-form [name=remark]").value==="保留未保存草稿"','关闭预览返回未保存编辑');
   await choose('#dialog .dialog-head [data-act=close]');
   await choose('[data-act=complete][data-id="89-demo-0"]');
+  await expectPage(`!document.querySelector('[data-act=select][data-id="89-demo-0"]')`,'完成后从待完成象限移出');
+  await choose('[data-filter=done]');
   await expectPage(content('.inspector .status-pill','已完成'),'任务勾选');
-  await expectPage('document.querySelector(".task-group[data-group=done] .task-row.completed") !== null','完成后进入已完成分组');
+  await expectPage(`!!document.querySelector('[data-rank="2"] .task-row.completed')`,'已完成任务仍在原优先级象限');
   await choose('[data-act=complete][data-id="89-demo-0"]');
+  await choose('[data-filter=open]');
   await expectPage(content('.inspector .status-pill','待完成'),'任务恢复');
   await choose('.page-actions [data-act=new]');
   await set('#modal-form [name=name]','浏览器新建任务');
   await submit('#modal-form');
-  await expectPage(content('.task-list','浏览器新建任务'),'保存任务');
+  await expectPage(content('#quadrant-1','浏览器新建任务'),'保存任务');
   await expectPage('!document.querySelector("#dialog").open','关闭创建窗口');
   await choose('.inspector [data-act=delete]');
   await submit('#modal-form');
-  await expectPage('!document.querySelector("[data-act=select][data-id^=\'89-\']") || !document.querySelector(".task-list").innerText.includes("浏览器新建任务")','软删除任务');
+  await expectPage('!document.querySelector(".task-board").innerText.includes("浏览器新建任务")','软删除任务');
   await goto('trash');
   await expectPage(content('.trash-card','浏览器新建任务'),'回收站');
   await choose('[data-act=restore]');
@@ -186,37 +205,38 @@ try {
   assert.equal(await evaluate('document.documentElement.scrollWidth===document.documentElement.clientWidth'),true);
   await expectPage(content('.inspector','整理本周的工作计划'),'窄屏详情');
   await call('Page.reload',{},sessionId);
-  await expectPage(content('.task-list','浏览器新建任务'),'刷新后恢复扫码会话和本机数据');
+  await expectPage(content('#quadrant-1','浏览器新建任务'),'刷新后恢复扫码会话和本机数据');
   await expectPage('document.querySelector("#sync-status").textContent === "已同步"','后台同步完成');
   assert.ok([...backend.records.values()].some(row=>row.data.name==='精确金额测试'&&row.data.amount==='12.037'));
   assert.ok([...backend.records.values()].some(row=>row.data.content==='发送立即保存'));
   assert.ok([...backend.records.values()].some(row=>row.data.media_id));
+  const baseDate=new Date();
+  baseDate.setHours(10,0,0,0);
   for (const [index,title] of ['检查资料附件','准备周末采购','核对已完成事项','预订会议室','整理项目文档',
     '更新本周计划','备份工作文件','核对报销单','预约设备维护','整理待办清单','更新资料索引','归档会议纪要',
     '完成本月复盘','查看下周安排','归档参考资料','确认交付清单'].entries()) {
     const uid='89-wide-'+index;
-    const at=Math.floor(Date.now()/1000)+(index-12)*3600;
+    const at=baseDate.getTime()/1000+index*60;
     backend.seed(T.task,uid,{name:title,rank:index%4+1,privacy:6720});
     backend.seed(T.schedule,'79-wide-'+index,{task_id:uid,start_at:at,end_at:at+3600,is_all_day:0});
     if(index>=10)backend.seed(T.check,'76-wide-'+index,{task_id:uid,start_at:at,check_at:at+600,status:1});
   }
   await choose('[data-act=sync]');
-  await expectPage('document.querySelectorAll(".task-row").length===23','宽屏数据和长列表');
+  await expectPage('document.querySelectorAll(".task-row").length===17 && !document.querySelector(".task-row.completed")','同步后默认仅显示待完成');
   await call('Emulation.setDeviceMetricsOverride',{width:2560,height:1269,deviceScaleFactor:1,mobile:false},sessionId);
   await choose('[data-act=select][data-id="89-demo-0"]');
   await expectPage(`(() => {
-    const workspace=document.querySelector('.workspace').getBoundingClientRect();
-    const calendar=document.querySelector('.calendar-card').getBoundingClientRect();
-    const tasks=document.querySelector('.tasks-card').getBoundingClientRect();
+    const [first,second,third,fourth]=Array.from(document.querySelectorAll('.task-quadrant'), node=>node.getBoundingClientRect());
     const detail=document.querySelector('.inspector').getBoundingClientRect();
-    return calendar.left-workspace.left<=28 && workspace.right-detail.right<=28 &&
-      calendar.right<tasks.left && tasks.right<detail.left && calendar.top<130;
-  })()`,'2560 像素视口紧邻导航与完整三栏');
+    return first.top===second.top && third.top===fourth.top && first.left===third.left &&
+      second.left===fourth.left && first.top<third.top && first.right<second.left && second.right<detail.left;
+  })()`,'宽屏四象限和详情保持并列');
   await screenshot('tasks-wide',2560,1269);
+  await goto('timeline');
   await call('Emulation.setDeviceMetricsOverride',{width:1440,height:680,deviceScaleFactor:1,mobile:false},sessionId);
+  await expectPage('document.querySelectorAll(".task-row").length===18','时间轴按日读取含已完成的任务');
   await evaluate('window.scrollTo(0,300)');
   await expectPage('scrollY>=200&&document.querySelector(".calendar-card").getBoundingClientRect().top===14&&document.querySelector(".task-list-heading").getBoundingClientRect().top===0','长列表滚动时固定日历与筛选栏');
-  await goto('timeline');
   await choose('[data-act=calendar-view][data-view=year]');
   await choose('[data-act=calendar-year]');
   await set('#modal-form [name=year]','2028');
@@ -231,10 +251,13 @@ try {
   await expectPage(`!!document.querySelector('.mini-day.has-tasks[data-date="2028-02-29"]') &&
     !!document.querySelector('.mini-day.has-tasks[data-date="2028-03-01"]') &&
     !!document.querySelector('.mini-day[data-date="2028-03-02"]:not(.has-tasks)')`,'年历同步后显示闰日及重复任务圆点');
+  await choose('.mini-day[data-date="2028-02-29"]');
+  await expectPage(`!!document.querySelector('.year-view')&&document.querySelectorAll('.task-row').length===1&&
+    document.querySelector('.task-row').textContent.includes('闰日重复任务')`,'年历点击有任务的日子时显示指定任务');
   await choose('[data-act=calendar-next]');
   await expectPage(`!!document.querySelector('.mini-day[data-date="2029-03-01"]') && !document.querySelector('.mini-day.has-tasks')`,'切换年份后清除旧年份标记');
   assert.deepEqual(errors,[]);
-  console.log('Chromium 通过 2560px 对齐、长列表吸顶、390px 窄屏、月历跨年、附件预览和现有业务验收。');
+  console.log('Chromium 通过四象限、默认待完成、年历点日保留视图、圆点、宽窄屏、附件及原有功能回归。');
 } finally {
   browser.kill();
   gateway.close();

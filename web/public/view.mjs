@@ -57,6 +57,7 @@ function calendar(ctx, tasks) {
   const now=dateKey(new Date());
   const year=ctx.calendarDate.getFullYear(), month=ctx.calendarDate.getMonth();
   const yearly=ctx.calendarView==='year';
+  const keyboardDay=ctx.day?.startsWith(year+'-')?ctx.day:now.startsWith(year+'-')?now:year+'-01-01';
   const byDate=new Map(), recurring=[];
   for (const task of tasks) {
     if (!task.start) continue;
@@ -77,8 +78,9 @@ function calendar(ctx, tasks) {
       const outside=date.getMonth()!==index;
       if (mini&&outside) return '<span></span>';
       const count=recurring.reduce((sum,task)=>sum+Number(Boolean(task.at(date))),byDate.get(value)||0);
-      if (mini) return `<span class="mini-day ${value===ctx.day?'mini-picked':value===now?'mini-today':''}${count?' has-tasks':''}"
-        data-date="${value}" title="${value}，${count} 项任务">${date.getDate()}</span>`;
+      if (mini) return `<button type="button" class="mini-day ${value===ctx.day?'mini-picked':value===now?'mini-today':''}${count?' has-tasks':''}"
+        data-act="day" data-date="${value}" tabindex="${value===keyboardDay?0:-1}" ${press(ctx.day===value)}
+        ${value===now?'aria-current="date"':''} aria-label="${value}，${count} 项任务" title="${value}，${count} 项任务">${date.getDate()}</button>`;
       return `<button type="button" class="calendar-day ${outside?'outside':''}" data-act="day" data-date="${value}"
         ${value===now?'aria-current="date"':''} ${press(ctx.day===value)} aria-label="${value}，${count} 项任务">
         <strong>${date.getDate()}</strong><i class="${count?'has-tasks':''}" aria-hidden="true"></i></button>`;
@@ -86,8 +88,8 @@ function calendar(ctx, tasks) {
   };
   const weekdaysMarkup=weekdays.slice(1).concat(weekdays[0]).map(day=>`<span>${day}</span>`).join('');
   const contents=yearly?`<div class="year-grid">${Array.from({length:12},(_,index)=>
-    `<button type="button" class="mini-month" data-act="calendar-month" data-month="${index}" aria-label="${year}年${index+1}月">
-    <strong>${index+1}月</strong><span class="mini-days" aria-hidden="true">${monthDays(index,true)}</span></button>`).join('')}</div>`:
+    `<section class="mini-month" aria-label="${year}年${index+1}月">
+    <h3>${index+1}月</h3><div class="mini-days">${monthDays(index,true)}</div></section>`).join('')}</div>`:
     `<div class="calendar-weekdays" aria-hidden="true">${weekdaysMarkup}</div><div class="calendar-days">${monthDays(month,false)}</div>`;
   return `<section class="calendar-card ${yearly?'year-view':''}" aria-label="任务日历">
     <div class="calendar-top"><div class="segment" aria-label="日历视图">
@@ -116,8 +118,10 @@ export function taskRows(ctx) {
   return { tasks,entries };
 }
 
-function taskRow(task, selection) {
-  const row=task.row, done=!!task.complete, rank=Math.max(1,Math.min(4,Number(row.data.rank)||1));
+const taskRank = row => Math.max(1,Math.min(4,Math.trunc(Number(row.data.rank)||1)));
+
+function taskRow(task, selection, showPriority=true) {
+  const row=task.row, done=!!task.complete, rank=taskRank(row);
   const selected=selection===row.uid;
   return `<li class="task-row ${selected?'selected':''} ${done?'completed':''}">
     <button type="button" class="task-check" data-act="complete" data-id="${h(row.uid)}" data-time="${task.when}"
@@ -125,7 +129,7 @@ function taskRow(task, selection) {
     <button type="button" class="row-main" data-act="select" data-id="${h(row.uid)}">
       <span class="task-name">${h(row.data.name)}</span>
       <span class="task-date">${icon('clock',15)}${planned(task)}</span>
-      <span class="priority priority-${rank}"><i></i>${priorities[rank-1]}</span>
+      ${showPriority?`<span class="priority priority-${rank}"><i></i>${priorities[rank-1]}</span>`:''}
     </button>
     <button type="button" class="icon-button row-open" data-act="edit" data-id="${h(row.uid)}" aria-label="编辑任务" title="编辑任务">${icon('more',18)}</button>
   </li>`;
@@ -153,12 +157,35 @@ function taskDetail(ctx, task) {
   return `<aside class="inspector"><div class="inspector-top"><span class="eyebrow">任务详情</span>${tile('关闭详情','clear-selection','close')}</div>
     <h2>${h(row.data.name)}</h2><span class="status-pill ${task.complete?'is-done':''}">${task.complete?'已完成':'待完成'}</span>
     <dl class="detail-meta"><div><dt>计划</dt><dd>${at?planned(task):'未安排'}</dd></div><div><dt>提醒</dt><dd>${reminder}</dd></div>
-    <div><dt>优先级</dt><dd>${priorities[Math.max(0,Math.min(3,(Number(row.data.rank)||1)-1))]}</dd></div></dl>
+    <div><dt>优先级</dt><dd>${priorities[taskRank(row)-1]}</dd></div></dl>
     ${task.remark?`<div class="detail-section"><h3>备注</h3><p>${h(task.remark)}</p></div>`:''}
     ${subtasks.length?`<div class="detail-section"><h3>子任务</h3><ul class="compact-list">${subtasks.map(item=>`<li>${h(item.data.name)}</li>`).join('')}</ul></div>`:''}
     ${attachments.length?`<div class="detail-section"><h3>附件</h3><div class="files">${attachments.map(attachmentRow).join('')}</div></div>`:''}
     <div class="inspector-actions">${action('编辑','edit','edit','primary')}${action('历史版本','versions','history')}${tile('移到回收站','delete','trash')}</div>
   </aside>`;
+}
+
+function taskFilters(ctx, entries, open, completed) {
+  const tabs=ctx.page==='tasks'?[['open','待完成',open.length],['all','全部',entries.length],['done','已完成',completed.length]]:
+    [['all','全部',entries.length],['open','待完成',open.length],['done','已完成',completed.length]];
+  return `<div class="list-toolbar" aria-label="任务状态">${tabs.map(([key,label,count])=>
+    `<button type="button" class="filter-tab" data-act="task-filter" data-filter="${key}" ${press(ctx.filter===key)}>${label}<span>${count}</span></button>`).join('')}</div>`;
+}
+
+function quadrants(ctx, shown, filters) {
+  const groups=[[],[],[],[],[]];
+  for (const task of shown) groups[taskRank(task.row)].push(task);
+  return `<section class="task-board" aria-label="任务四象限">${filters}<div class="quadrant-grid">
+    ${[4,2,3,1].map(rank=>{
+      const label=priorities[rank-1], items=groups[rank];
+      return `<section class="content-card task-quadrant" data-rank="${rank}" aria-label="${label}">
+        <div class="quadrant-heading"><h2>${label}<span>${items.length}</span></h2>
+          <button type="button" class="icon-button quadrant-add" aria-label="新建${label}任务" data-act="new" data-rank="${rank}" title="新建${label}任务">${icon('plus',17)}</button></div>
+        ${items.length?`<ul class="task-list" id="quadrant-${rank}">${items.map(task=>taskRow(task,ctx.selected,false)).join('')}</ul>`:
+          '<p class="quadrant-empty">暂无任务</p>'}
+      </section>`;
+    }).join('')}
+    </div></section>`;
 }
 
 function tasksPage(ctx) {
@@ -167,21 +194,22 @@ function tasksPage(ctx) {
   const shown=ctx.filter==='open'?open:ctx.filter==='done'?completed:entries;
   const selection=shown.find(task=>task.row.uid===ctx.selected);
   const title=ctx.page==='timeline'?'时间轴':'任务';
+  const heading=pageHeading(title,`<span class="subtle-date">${dayText(new Date())} · 周${weekdays[new Date().getDay()]}</span>`,action('新建任务','new','plus','primary'));
+  const filters=taskFilters(ctx,entries,open,completed), detail=taskDetail(ctx,selection);
+  const panels=`<div class="task-pane"><div class="task-content ${selection?'has-selection':''}">`;
+  if (ctx.page==='tasks') return heading+panels+quadrants(ctx,shown,filters)+detail+'</div></div>';
   const selectedTitle=ctx.day?monthFormat(ctx.day.slice(0,7))+Number(ctx.day.slice(8))+'日的任务':'任务列表';
-  return pageHeading(title,`<span class="subtle-date">${dayText(new Date())} · 周${weekdays[new Date().getDay()]}</span>`,action('新建任务','new','plus','primary')) +
+  return heading+
     `<div class="calendar-layout ${ctx.calendarView==='year'?'calendar-layout-year':''}">${calendar(ctx,tasks)}
-      <div class="task-pane"><div class="task-content ${selection?'has-selection':''}">
-      <section class="content-card tasks-card"><div class="task-list-heading"><div class="section-head"><h2>${selectedTitle}</h2>
-      ${ctx.day&&ctx.page==='tasks'?action('查看全部','clear-day',null,'ghost'):''}</div>
-      <div class="list-toolbar" aria-label="任务状态">${[['all','全部',entries.length],['open','待完成',open.length],['done','已完成',completed.length]]
-        .map(([key,label,count])=>`<button type="button" class="filter-tab" data-act="task-filter" data-filter="${key}" ${press(ctx.filter===key)}>${label}<span>${count}</span></button>`).join('')}</div></div>
+      ${panels}<section class="content-card tasks-card"><div class="task-list-heading"><div class="section-head"><h2>${selectedTitle}</h2></div>
+      ${filters}</div>
       ${shown.length?(ctx.filter==='all'&&open.length&&completed.length?
         `<div class="task-groups">${[['open','待完成',open],['done','已完成',completed]].map(([key,label,items])=>
           `<section class="task-group" data-group="${key}"><h3>${label} <span>${items.length}</span></h3>
           <ul class="task-list">${items.map(task=>taskRow(task,ctx.selected)).join('')}</ul></section>`).join('')}</div>`:
         `<ul class="task-list">${shown.map(task=>taskRow(task,ctx.selected)).join('')}</ul>`):
         empty('tasks',ctx.query?'没有找到相关任务':'这里还没有任务',ctx.query?'试试任务名称中的其他关键词。':'',ctx.query?'':action('新建任务','new','plus','secondary'))}
-      </section>${taskDetail(ctx,selection)}</div></div></div>`;
+      </section>${detail}</div></div></div>`;
 }
 
 export function billRows(ctx) {

@@ -102,21 +102,45 @@ kbd { border:1px solid #e3e3ef; border-radius:5px; padding:1px 4px; font:11px/1.
   border:1px solid transparent; border-radius:8px; background:transparent; font-size:13px; font-variant-numeric:tabular-nums; }
 .calendar-day.outside { color:var(--muted); background:#f8f8fc; }
 .calendar-day[aria-current] { border-color:#bcaff4; color:var(--primary-dark); }
-.calendar-day:hover,.mini-month:hover { background:#f5f2ff; }
+.calendar-day:hover,.mini-day:hover { background:#f5f2ff; }
 .calendar-day[aria-pressed="true"] { background:var(--primary); color:white; }
 .calendar-day i { width:4px; height:4px; border-radius:50%; }
 .calendar-day .has-tasks { background:currentColor; }
 .year-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; margin-top:10px; }
 .mini-month { min-width:0; text-align:left; border:1px solid var(--line); border-radius:9px; background:white; padding:6px 4px; }
-.mini-month > strong { margin-left:4px; font-size:12px; }
+.mini-month h3 { margin-left:4px; font-size:12px; }
 .mini-days { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); margin-top:4px; text-align:center;
   color:var(--muted); font-size:9px; font-variant-numeric:tabular-nums; }
-.mini-days span { min-height:16px; line-height:11px; padding-top:1px; }
+.mini-days > span,.mini-day { min-height:16px; line-height:11px; padding:1px 0 0; }
+.mini-day { border:0; border-radius:4px; background:transparent; font-size:inherit; }
+.mini-day:focus-visible { position:relative; outline-offset:0; }
 .mini-day.has-tasks::after { content:""; display:block; width:3px; height:3px; margin:0 auto; border-radius:50%; background:currentColor; }
 .mini-days .mini-today,.mini-days .mini-picked { border-radius:4px; background:var(--violet-soft); color:var(--primary-dark); font-weight:700; }
 .mini-days .mini-picked { background:var(--primary); color:white; }
 .task-pane { min-width:0; container-type:inline-size; }
 .task-content { display:grid; gap:14px; align-items:start; min-width:0; }
+.task-board { min-width:0; container-type:inline-size; }
+.task-board > .list-toolbar { padding:0 0 10px; border:0; }
+.quadrant-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+.task-quadrant { min-height:126px; --quadrant-color:var(--muted); --quadrant-tint:#f0f2f8; }
+.task-quadrant[data-rank="4"] { --quadrant-color:#9c3944; --quadrant-tint:#fbeff0; }
+.task-quadrant[data-rank="2"] { --quadrant-color:#80500f; --quadrant-tint:#fff4dd; }
+.task-quadrant[data-rank="3"] { --quadrant-color:#255b92; --quadrant-tint:#ecf4ff; }
+.task-quadrant[data-rank="1"] { --quadrant-color:#246849; --quadrant-tint:#edf6f0; }
+.quadrant-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 11px 7px 15px;
+  border-radius:var(--radius) var(--radius) 0 0; background:var(--quadrant-tint); color:var(--quadrant-color); }
+.quadrant-heading h2 { display:flex; align-items:center; gap:8px; font-size:14px; }
+.quadrant-heading h2 span { font-size:11px; font-variant-numeric:tabular-nums; opacity:.85; }
+.quadrant-add { width:28px; height:28px; color:inherit; }
+.quadrant-empty { padding:15px; color:var(--muted); font-size:12px; }
+.task-quadrant .task-list { padding:0 7px 5px; }
+.task-quadrant .row-main { grid-template-columns:minmax(0,1fr) auto; }
+@container (max-width: 579px) {
+  .quadrant-grid { grid-template-columns:1fr; gap:9px; }
+}
+@container (min-width: 580px) {
+  .task-quadrant .task-list { max-height:clamp(185px,40svh,500px); overflow:auto; }
+}
 .tasks-card { container-type:inline-size; }
 @container (min-width: 720px) {
   .task-content.has-selection { grid-template-columns:minmax(0,1fr) clamp(248px,28cqi,360px); }
@@ -358,6 +382,8 @@ input[type="checkbox"] { accent-color:var(--primary); }.form-grid details { grid
   :is(.page-tasks,.page-timeline) > .page-heading > div:first-child { display:block; }
   .page-actions .button { padding:6px 8px; min-height:32px; }
   .calendar-layout,.calendar-layout-year { grid-template-columns:1fr; gap:12px; } .calendar-card { padding:12px; }
+  .year-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .mini-day,.mini-days > span { min-height:20px; line-height:13px; }
   .section-head { padding:13px 10px 8px; }.list-toolbar { padding-inline:10px; }
   .task-list { padding-inline:4px; }.task-row { gap:3px; min-height:44px; padding-inline:3px; }
   .row-main { grid-template-columns:minmax(0,1fr) 77px; }.priority { display:none; }.task-name { font-size:13px; }.task-date { font-size:10px; }
