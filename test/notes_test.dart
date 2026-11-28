@@ -5,6 +5,62 @@ import 'package:gxtodo/domain.dart';
 import 'package:gxtodo/notes.dart';
 
 void main() {
+  test('日记和信息使用跨客户端的目录结构，目录最多三层', () {
+    final data = WorkspaceData();
+    const who = Identity.guest;
+    const team = -1;
+    const diary = NoteSection.diary;
+    saveNotebookFolder(data, who, team, diary, 'first', '随记');
+    saveNotebookFolder(data, who, team, diary, 'second', '旅行', parent: 'first');
+    saveNotebookFolder(data, who, team, diary, 'third', '照片', parent: 'second');
+    expect(
+      () => saveNotebookFolder(
+        data,
+        who,
+        team,
+        diary,
+        'fourth',
+        '第四层',
+        parent: 'third',
+      ),
+      throwsFormatException,
+    );
+    expect(
+      () => saveNotebookFolder(
+        data,
+        who,
+        team,
+        NoteSection.info,
+        'bad',
+        '其他栏目录',
+        parent: 'first',
+      ),
+      throwsFormatException,
+    );
+    saveConversation(
+      data,
+      who,
+      team,
+      'doc',
+      '自己填写的标题',
+      const [],
+      const {},
+      section: diary,
+      parentFolder: 'third',
+    );
+    final restored = WorkspaceData.fromJson(
+      jsonDecode(jsonEncode(data.toJson())),
+    );
+    final note = restored.get(team, Tables.note, 'doc')!;
+    expect(note.data[noteSectionField], 'diary:doc:third');
+    expect(noteSection(note), diary);
+    expect(noteFolderParent(note), 'third');
+    expect(isNotebookFolder(note), isFalse);
+    expect(noteTitle(note), '自己填写的标题');
+    expect(notebookFolders(restored, team, diary).last.path, '随记 / 旅行 / 照片');
+    expect(notebookFolders(restored, team, NoteSection.info), isEmpty);
+  });
+
   test('编辑文字保留创建时间，筛选使用创建时间而非更新时间', () {
     final data = WorkspaceData();
     const who = Identity.guest;

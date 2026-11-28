@@ -366,7 +366,50 @@ export function captureVersion(state,user,row,action='保存') {
 }
 
 export const noteTitle = row => row.data.title || String(row.data.name || '').trim().split('\n')[0] || '未命名便签';
-export const noteSection = row => row.data.notebook_section || 'quick';
+export const customNotebook = section => section==='diary'||section==='info';
+
+// The existing private note protocol preserves notebook_section as a string.
+// Store the folder kind and parent here so that both travel with the note.
+function notebookLocation(row) {
+  const value=String(row.data.notebook_section||'quick');
+  const [section,kind,parent='']=value.split(':');
+  return customNotebook(section)?{section,folder:kind==='folder',parent}:{section:value,folder:false,parent:''};
+}
+export const noteSection = row => notebookLocation(row).section;
+export const isNoteFolder = row => notebookLocation(row).folder;
+export const noteParent = row => notebookLocation(row).parent;
+export const documentSection = (section,parent='') => customNotebook(section)&&parent ? section+':doc:'+parent : section;
+
+export function noteFolders(state,team,section) {
+  if (!customNotebook(section)) return [];
+  const byParent=Map.groupBy(list(state,team,T.note).filter(row=>noteSection(row)===section&&isNoteFolder(row)),noteParent);
+  const folders=[];
+  function visit(parent,path,depth) {
+    if (depth>3) return;
+    const children=(byParent.get(parent)||[]).sort((a,b)=>noteTitle(a).localeCompare(noteTitle(b),'zh-CN'));
+    for (const row of children) {
+      const name=noteTitle(row);
+      const next=[...path,name];
+      folders.push({ uid:row.uid,parent,depth,name,path:next.join(' / ') });
+      visit(row.uid,next,depth+1);
+    }
+  }
+  visit('',[],1);
+  return folders;
+}
+
+export function saveNoteFolder(state,account,team,section,uid,name,parent='') {
+  const title=String(name||'').trim();
+  if (!customNotebook(section)||!title||title.length>100) throw new Error('请输入 1 到 100 字的目录名称');
+  const folders=noteFolders(state,team,section);
+  const target=folders.find(folder=>folder.uid===parent);
+  if (parent&&!target) throw new Error('上级目录已失效，请重新选择');
+  if (target?.depth===3) throw new Error('目录最多三层');
+  if (folders.some(folder=>folder.parent===parent&&folder.name===title)) throw new Error('同一层已有这个目录');
+  put(state,account,team,T.note,uid,{name:title,title,conversation_version:1,attachments:'[]',status:0,
+    notebook_section:section+':folder:'+parent});
+}
+
 export function noteEntries(state, row) {
   const entries = related(state,row,T.entry,'note_id');
   if (!Number(row.data.conversation_version)) {

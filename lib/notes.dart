@@ -7,19 +7,116 @@ import 'domain.dart';
 enum NoteSection {
   quick('速记'),
   essence('精髓'),
-  core('内核');
+  core('内核'),
+  diary('日记'),
+  info('信息');
 
   const NoteSection(this.label);
   final String label;
+  bool get customFolders => this == diary || this == info;
 }
 
 const noteSectionField = 'notebook_section';
 
-NoteSection noteSection(Item note) => switch (note.data[noteSectionField]) {
+List<String> _noteLocation(Item note) =>
+    text(note.data[noteSectionField]).split(':');
+
+NoteSection noteSection(Item note) => switch (_noteLocation(note).first) {
   'essence' => NoteSection.essence,
   'core' => NoteSection.core,
+  'diary' => NoteSection.diary,
+  'info' => NoteSection.info,
   _ => NoteSection.quick,
 };
+
+bool isNotebookFolder(Item note) {
+  final parts = _noteLocation(note);
+  return noteSection(note).customFolders &&
+      parts.length > 1 &&
+      parts[1] == 'folder';
+}
+
+String noteFolderParent(Item note) {
+  final parts = _noteLocation(note);
+  return noteSection(note).customFolders && parts.length > 2 ? parts[2] : '';
+}
+
+typedef NotebookFolder = ({
+  String uid,
+  String parent,
+  int depth,
+  String name,
+  String path,
+});
+
+List<NotebookFolder> notebookFolders(
+  WorkspaceData data,
+  int team,
+  NoteSection section,
+) {
+  if (!section.customFolders) return [];
+  final byParent = <String, List<Item>>{};
+  for (final row in data.list(team, Tables.note)) {
+    if (noteSection(row) == section && isNotebookFolder(row)) {
+      byParent.putIfAbsent(noteFolderParent(row), () => []).add(row);
+    }
+  }
+  final folders = <NotebookFolder>[];
+  void visit(String parent, List<String> path, int depth) {
+    final children = byParent[parent];
+    if (children == null || depth > 3) return;
+    children.sort((a, b) => noteTitle(a).compareTo(noteTitle(b)));
+    for (final row in children) {
+      final name = noteTitle(row);
+      final next = [...path, name];
+      folders.add((
+        uid: row.uid,
+        parent: parent,
+        depth: depth,
+        name: name,
+        path: next.join(' / '),
+      ));
+      visit(row.uid, next, depth + 1);
+    }
+  }
+
+  visit('', [], 1);
+  return folders;
+}
+
+void saveNotebookFolder(
+  WorkspaceData data,
+  Identity who,
+  int team,
+  NoteSection section,
+  String uid,
+  String name, {
+  String parent = '',
+}) {
+  final title = name.trim();
+  if (!section.customFolders || title.isEmpty || title.length > 100) {
+    throw const FormatException('请输入 1 到 100 字的目录名称');
+  }
+  final folders = notebookFolders(data, team, section);
+  final target = folders.where((folder) => folder.uid == parent).firstOrNull;
+  if (parent.isNotEmpty && target == null) {
+    throw const FormatException('上级目录已失效，请重新选择');
+  }
+  if (target?.depth == 3) throw const FormatException('目录最多三层');
+  if (folders.any(
+    (folder) => folder.parent == parent && folder.name == title,
+  )) {
+    throw const FormatException('同一层已有这个目录');
+  }
+  data.save(who, team, Tables.note, uid, {
+    'name': title,
+    'title': title,
+    'conversation_version': 1,
+    'attachments': '[]',
+    'status': 0,
+    noteSectionField: '${section.name}:folder:$parent',
+  });
+}
 
 List<Fields> noteAttachments(Item? note) {
   final raw = text(note?.data['attachments']);
@@ -132,17 +229,30 @@ void saveConversation(
   List<Fields> messages,
   Map<String, Fields> localMedia, {
   NoteSection section = NoteSection.quick,
+  String parentFolder = '',
   Set<String> removed = const {},
 }) {
+  final isNew = data.get(team, Tables.note, uid) == null;
+  if (isNew &&
+      section.customFolders &&
+      parentFolder.isNotEmpty &&
+      !notebookFolders(
+        data,
+        team,
+        section,
+      ).any((folder) => folder.uid == parentFolder)) {
+    throw const FormatException('目录已失效，请重新选择');
+  }
   data.save(who, team, Tables.note, uid, {
     'name': title,
     'title': title,
     'conversation_version': 1,
     'attachments': '[]',
     'status': 0,
-    if (section != NoteSection.quick &&
-        data.get(team, Tables.note, uid) == null)
-      noteSectionField: section.name,
+    if (section != NoteSection.quick && isNew)
+      noteSectionField: section.customFolders && parentFolder.isNotEmpty
+          ? '${section.name}:doc:$parentFolder'
+          : section.name,
   });
   for (final message in messages) {
     final id = text(message['uid']);

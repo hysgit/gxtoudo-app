@@ -101,13 +101,23 @@ try {
   const yearMarks=Object.fromEntries(await evaluate(`Array.from(document.querySelectorAll('.mini-day')).map(day=>[day.dataset.date,day.classList.contains('has-tasks')])`));
   assert.ok(monthMarks.some(([,marked])=>marked) && monthMarks.some(([,marked])=>!marked));
   for(const [day,marked] of monthMarks) assert.equal(yearMarks[day],marked,day);
-  await expectPage(`getComputedStyle(document.querySelector('.mini-day.has-tasks'),'::after').width==='3px'`,'年历圆点可见');
+  await expectPage(`getComputedStyle(document.querySelector('.mini-day.has-tasks'),'::after').width==='4px'`,'年历圆点可见');
+  await expectPage(`(() => {
+    const cards=[...document.querySelectorAll('.mini-month')].map(card=>card.getBoundingClientRect());
+    return cards[0].top===cards[1].top && cards[1].top<cards[2].top && cards[0].left===cards[2].left &&
+      cards[0].width>250 && document.querySelector('.mini-day').getBoundingClientRect().height>=24;
+  })()`,'十二区月卡按两列排列且日期放大');
   const nextDay=await evaluate(`document.querySelector('.mini-day[aria-current=date]').nextElementSibling?.dataset.date ||
     document.querySelector('.mini-day[aria-current=date]').previousElementSibling?.dataset.date`);
   const selectedDay=nextDay||monthMarks.find(([,marked])=>marked)?.[0];
   await choose(`.mini-day[data-date="${selectedDay}"]`);
   await expectPage(`!!document.querySelector('.year-view .mini-day[data-date="${selectedDay}"][aria-pressed=true]') &&
     document.querySelector('.tasks-card h2').textContent.endsWith('${Number(selectedDay.slice(8))}日的任务')`,'点击年历具体日期，右侧切当天且保持年视图');
+  await expectPage(`(() => {
+    const grid=document.querySelector('#year-month-grid'), button=document.querySelector('.mini-day[aria-pressed=true]');
+    return grid.scrollHeight>grid.clientHeight && button.getBoundingClientRect().bottom<=innerHeight &&
+      document.querySelector('.calendar-header').getBoundingClientRect().top>=0;
+  })()`,'年历在列内滚动并保证所选日期可见');
   await screenshot('calendar-year');
   await choose('[data-act=calendar-year]');
   await set('#modal-form [name=year]','2028');
@@ -191,6 +201,51 @@ try {
   await choose('[data-act=note-section][data-section=essence]');
   await choose('[data-act=select][data-id="49-demo-1"]');
   await expectPage(content('.document-body','复盘时先区分'),'精髓文档');
+  await choose('.note-head [data-act=edit]');
+  await expectPage('!!document.querySelector(".note-content #note-edit-form textarea") && !document.querySelector("#dialog").open','精髓原地编辑');
+  await set('#note-edit-form textarea','正文现在直接在页面中编辑');
+  await choose('[data-act=sync]');
+  await expectPage(`document.querySelector('#note-edit-form textarea')?.value==='正文现在直接在页面中编辑'`,'同步时保留编辑草稿');
+  await submit('#note-edit-form');
+  await expectPage(content('.document-body','正文现在直接在页面中编辑'),'原地编辑保存');
+  await choose('[data-act=note-section][data-section=diary]');
+  for (const title of ['生活','旅行','随笔']) {
+    await choose('[data-act=folder-new]');
+    await set('#folder-form [name=name]',title);
+    await submit('#folder-form');
+    await expectPage(`!document.querySelector('#folder-form')&&document.querySelector('.folder-choice[aria-pressed=true]').textContent.includes('${title}')`,'依次建立三层目录');
+  }
+  await choose('[data-act=folder-new]');
+  await expectPage(`![...document.querySelectorAll('#folder-form select option')].some(option=>option.textContent==='生活 / 旅行 / 随笔')`,'三级目录不可作为上级目录');
+  await choose('[data-act=folder-cancel]');
+  await choose('.page-actions [data-act=new]');
+  await expectPage(`document.querySelector('#note-edit-form [name=parent]').selectedOptions[0].textContent==='生活 / 旅行 / 随笔'`,'新日记选中当前目录');
+  await set('#note-edit-form [name=name]','小路记录');
+  await set('#note-edit-form textarea','日记原地写作');
+  await evaluate(`(() => {
+    const field=document.querySelector('#document-images'), transfer=new DataTransfer();
+    const payload='iVBORw0KGgoAAAANSUhEUgAAABAAAAAKCAIAAAAy3EnLAAAAGklEQVR4nGNM9D/MQApgIkk1w6gG4gDtgxUA2AIBh2gVloUAAAAASUVORK5CYII=';
+    transfer.items.add(new File([Uint8Array.from(atob(payload),ch=>ch.charCodeAt(0))],'日记图片.png',{type:'image/png'}));
+    field.files=transfer.files;
+    field.dispatchEvent(new Event('change',{bubbles:true}));
+  })()`);
+  await submit('#note-edit-form');
+  await expectPage(content('.document-body','日记原地写作'),'日记正文保存');
+  await expectPage(`document.querySelector('.document-body img')?.naturalWidth===16`,'日记内联插图显示');
+  await expectPage(`document.querySelector('.note-tile.selected strong').textContent==='小路记录'`,'自定义名称不加日期');
+  await screenshot('diary');
+  await choose('[data-act=note-section][data-section=info]');
+  await expectPage(`!document.querySelector('.notes-list').textContent.includes('小路记录')`,'日记目录和信息独立');
+  await choose('.page-actions [data-act=new]');
+  await set('#note-edit-form [name=name]','参考资料');
+  await set('#note-edit-form textarea','信息记录内容');
+  await submit('#note-edit-form');
+  await expectPage(content('.document-body','信息记录内容'),'信息文档支持同一编辑形式');
+  await choose('[data-act=note-section][data-section=diary]');
+  await choose('.note-tile[data-act=select]');
+  await choose('.note-head [data-act=edit]');
+  await screenshot('note-inline-edit');
+  await choose('[data-act=note-edit-cancel]');
 
   await goto('ai');
   await set('#ai-send textarea','汇总本月支出');
@@ -210,6 +265,8 @@ try {
   assert.ok([...backend.records.values()].some(row=>row.data.name==='精确金额测试'&&row.data.amount==='12.037'));
   assert.ok([...backend.records.values()].some(row=>row.data.content==='发送立即保存'));
   assert.ok([...backend.records.values()].some(row=>row.data.media_id));
+  assert.ok([...backend.records.values()].some(row=>row.data.title==='小路记录'&&row.data.notebook_section.startsWith('diary:doc:')));
+  assert.ok([...backend.records.values()].some(row=>row.data.title==='参考资料'&&row.data.notebook_section==='info'));
   const baseDate=new Date();
   baseDate.setHours(10,0,0,0);
   for (const [index,title] of ['检查资料附件','准备周末采购','核对已完成事项','预订会议室','整理项目文档',
@@ -257,7 +314,7 @@ try {
   await choose('[data-act=calendar-next]');
   await expectPage(`!!document.querySelector('.mini-day[data-date="2029-03-01"]') && !document.querySelector('.mini-day.has-tasks')`,'切换年份后清除旧年份标记');
   assert.deepEqual(errors,[]);
-  console.log('Chromium 通过四象限、默认待完成、年历点日保留视图、圆点、宽窄屏、附件及原有功能回归。');
+  console.log('Chromium 通过两列年历、点日和滚动、四象限、日记信息、三层目录、正文原地编辑及内联图片验收。');
 } finally {
   browser.kill();
   gateway.close();

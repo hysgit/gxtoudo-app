@@ -153,6 +153,54 @@ void main() {
     ]);
   });
 
+  testWidgets('手机日记手建三层目录并保存自定义标题，信息单独显示', (tester) async {
+    final store = MemoryRepository();
+    final controller = TodoController(store);
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    await tester.pumpWidget(TodoApp(controller));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('便签'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('日记'));
+    await tester.pumpAndSettle();
+    for (final name in ['生活', '旅行', '随笔']) {
+      await tester.tap(find.text('新建目录'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.widgetWithText(TextField, '目录名称'), name);
+      await tester.tap(find.text('创建'));
+      await tester.pumpAndSettle();
+    }
+    expect(find.text('生活 / 旅行 / 随笔'), findsOneWidget);
+    final add = tester.widget<TextButton>(
+      find.ancestor(of: find.text('新建目录'), matching: find.byType(TextButton)),
+    );
+    expect(add.onPressed, isNull);
+    await tester.tap(find.byTooltip('新建记事本'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextFormField, '笔记题目'), '自填标题');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, '内容'), '旅途的正文');
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('自填标题'), findsOneWidget);
+    final data = await store.read(Identity.guest.scope);
+    final entry = data
+        .list(-1, Tables.note)
+        .firstWhere((row) => row.name == '自填标题');
+    expect(noteSection(entry), NoteSection.diary);
+    expect(
+      noteFolderParent(entry),
+      notebookFolders(data, -1, NoteSection.diary).last.uid,
+    );
+    expect(noteMessages(data, entry).single.data['content'], '旅途的正文');
+    await tester.tap(find.text('信息'));
+    await tester.pumpAndSettle();
+    expect(find.text('自填标题'), findsNothing);
+    expect(find.text('根目录'), findsOneWidget);
+  });
+
   testWidgets('精髓旧正文原位可编辑，插入图片后保持正文顺序', (tester) async {
     const recorder = MethodChannel('com.llfbandit.record/messages');
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(

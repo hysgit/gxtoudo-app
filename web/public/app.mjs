@@ -3,7 +3,8 @@ import { icon } from './icons.mjs';
 import { action, attachmentRow, h, pages, shell, signin } from './view.mjs';
 import { Workspace, addFiles, digest, request, stageFiles } from './api.mjs';
 import { T, addDays, dateKey, clock, whenText, billTypes, priorities, repeatNames, reminders,
-  get, list, id, put, remove, noteEntries, noteTitle, filesOf, saveTask, taskSnapshot,
+  get, list, id, put, remove, noteEntries, noteTitle, noteParent, noteFolders, customNotebook, documentSection, saveNoteFolder,
+  filesOf, saveTask, taskSnapshot,
   toggleTask, restoreTaskChecks, saveBill, billSnapshot, versions, captureVersion } from './domain.mjs';
 
 const app=document.querySelector('#app'), dialog=document.querySelector('#dialog'), mediaDialog=document.querySelector('#media-dialog');
@@ -15,6 +16,7 @@ const ctx={
   account:null, state:null, page:initialPage, team:0, selected:null, query:'',
   calendarDate:new Date(), calendarView:'month', day:null, filter:defaultFilter(initialPage), month:today().slice(0,7), billFilter:null, archive:false,
   noteSection:'quick', noteDraft:'', recording:false, canDictate:!!SpeechRecognition,
+  noteFolder:'', folderDraft:null, noteEdit:null,
   ai:{ conversations:[], turns:[], thread:'', draft:'', file:null },
   status:'正在同步', syncFailed:false,
 };
@@ -23,6 +25,7 @@ let noteRecorder, previewObserver, dialogPreviewObserver, editorRecord;
 let login={ loading:true, message:'正在获取登录二维码…' };
 let composing=false;
 const media=new Map();
+const noteEdits=new Map();
 let modalURL, mediaJob=0;
 
 function pageFromHash() {
@@ -47,11 +50,13 @@ function render({ bottom=false }={}) {
   const active=document.activeElement;
   const field=active?.matches('#search,#note-send textarea,#ai-send textarea') ? active.closest('form')?.id : null;
   const search=active?.id==='search';
+  const draftField=active?.name && active.closest('#note-edit-form,#folder-form')
+    ? [active.form.id,active.name,active.scrollTop] : null;
   const selection=active instanceof HTMLInputElement||active instanceof HTMLTextAreaElement
     ? [active.selectionStart,active.selectionEnd] : null;
   const navKey=active instanceof HTMLElement && app.contains(active) && active.matches(':focus-visible')
     ? { ...active.dataset } : null;
-  const scrollIds=['note-messages','ai-turns','quadrant-1','quadrant-2','quadrant-3','quadrant-4'];
+  const scrollIds=['note-messages','ai-turns','year-month-grid','quadrant-1','quadrant-2','quadrant-3','quadrant-4'];
   const previousScroll=Object.fromEntries(scrollIds.map(id=>[id,document.getElementById(id)?.scrollTop||0]));
   const collapsed=[...app.querySelectorAll('details:not([open]) > summary')].map(node=>node.textContent);
   app.innerHTML=ctx.account&&ctx.state?shell(ctx):signin(login);
@@ -64,10 +69,12 @@ function render({ bottom=false }={}) {
       const node=document.getElementById(id);
       if (node) node.scrollTop=bottom?node.scrollHeight:previousScroll[id];
     }
-    if (search||field) {
-      const next=search?document.querySelector('#search'):document.querySelector('#'+field+' textarea');
+    if (search||field||draftField) {
+      const next=draftField?document.getElementById(draftField[0])?.elements.namedItem(draftField[1]):
+        search?document.querySelector('#search'):document.querySelector('#'+field+' textarea');
       next?.focus({ preventScroll:true });
       if (next && selection && selection[0]!==null) next.setSelectionRange(...selection);
+      if (next && draftField) next.scrollTop=draftField[2];
     } else if (navKey?.act) {
       [...app.querySelectorAll('[data-act]')].find(node=>Object.entries(navKey).every(([key,value])=>node.dataset[key]===value))
         ?.focus({ preventScroll:true });
@@ -163,9 +170,10 @@ async function forgetAccount() {
   dialogPreviewObserver?.disconnect();
   for (const value of media.values()) if (value.url) URL.revokeObjectURL(value.url);
   media.clear();
+  noteEdits.clear();
   if (mediaDialog.open) mediaDialog.close();
   if (dialog.open) dialog.close();
-  Object.assign(ctx,{ account:null, state:null, selected:null, query:'', noteDraft:'', recording:false,
+  Object.assign(ctx,{ account:null, state:null, selected:null, query:'', noteDraft:'', noteFolder:'', folderDraft:null, noteEdit:null, recording:false,
     ai:{ conversations:[], turns:[], thread:'', draft:'', file:null } });
   await startLogin();
 }
@@ -219,9 +227,9 @@ function openDialog(title,body,handler=null,submitLabel='保存') {
 
 function editor(existing,rank=1) {
   const table=existing?.table||tableFor();
+  if (table===T.note) { openNoteEditor(existing); return; }
   const team=ctx.team, account=ctx.account, uid=existing?.uid||id(table);
-  const title=table===T.bill?'账单':table===T.note?(ctx.noteSection==='quick'?'速记':'记事本'):'任务';
-  const selectedSection=ctx.noteSection;
+  const title=table===T.bill?'账单':'任务';
   let current, body;
   if (table===T.task) {
     current=existing?taskSnapshot(ctx.state,existing,account.id):{ rank, alert:0, reminderMode:'both',repeat:0 };
@@ -241,7 +249,7 @@ function editor(existing,rank=1) {
       ${field('标签（每行一个）',textarea('tags',current.tags?.join('\n'),2))}
       ${field('复盘',textarea('review',current.review,2,'maxlength="12000"'))}</details>
       ${fileFields(attachments)}</div>`;
-  } else if (table===T.bill) {
+  } else {
     current=existing?billSnapshot(ctx.state,existing):{ date:today(),type:'expense',currency:'CNY',channel:'支付宝',party:'支付宝余额',
       include_in_totals:1,include_in_party_stats:1 };
     const attachments=existing?filesOf(ctx.state,existing):[];
@@ -262,52 +270,13 @@ function editor(existing,rank=1) {
       ${field('地点',input('location',current.location,'maxlength="200"'),true)}
       ${field('备注',textarea('remark',current.remark,3,'maxlength="12000"'),true)}
       ${fileFields(attachments)}</div>`;
-  } else {
-    const docs=selectedSection!=='quick';
-    current=existing?noteEntries(ctx.state,existing):[];
-    const text=current.filter(row=>row.data.kind==='text');
-    body=`<div class="form-grid">${field('标题',input('name',existing?noteTitle(existing):'','maxlength="100" required autofocus'),true)}
-      ${docs?(text.length?text.map((row,index)=>field(index?'段落':'正文',textarea('body'+index,row.data.content,5,'maxlength="60000"'),true)).join(''):
-        field('正文',textarea('body0','',7,'maxlength="60000"'),true))+
-        field('插入图片','<input name="files" type="file" multiple accept="image/*">',true):''}</div>`;
   }
   openDialog((existing?'编辑':'新建')+title,body,async(form)=>{
     const fields=new FormData(form);
     const files=fields.getAll('files').filter(file=>file instanceof File&&file.size>0);
-    const attachmentTable=table===T.task?T.taskFile:table===T.bill?T.billFile:T.entry;
+    const attachmentTable=table===T.task?T.taskFile:T.billFile;
     const staged=await stageFiles(files,attachmentTable);
-    if (table===T.note) {
-      const name=String(fields.get('name')).trim();
-      if (!name) throw new Error('请输入便签标题');
-      const docs=selectedSection!=='quick';
-      const migration=existing?await migrationRows(existing,current):[];
-      const originals=current.filter(row=>row.data.kind==='text');
-      await edit(state=>{
-        const latest=get(state,team,table,uid);
-        if (!existing || migration.length || latest&&!Number(latest.data.conversation_version)) {
-          migrate(state,existing,latest,migration,account.id);
-        }
-        const selected=put(state,account.id,team,table,uid,{
-          ...(!existing||name!==noteTitle(existing)||!Number(latest?.data.conversation_version)?{name,title:name}:{}),
-          conversation_version:1, ...(!existing||!Number(latest?.data.conversation_version)?{attachments:'[]',status:0}:{}),
-          ...(!existing&&docs?{notebook_section:selectedSection}:{}),
-        });
-        if (docs) {
-          for(let index=0;index<Math.max(1,originals.length);index++){
-            const original=originals[index], content=String(fields.get('body'+index)||'');
-            if (original?.data.content===content || (!original&&!content)) continue;
-            const key=original?.uid||migration.find(row=>row.legacy===original?.legacy)?.uid;
-            if (key) {
-              const previous=get(state,team,T.entry,key);
-              if (!previous || previous.removed) throw new Error('段落已在另一台设备删除，请重新打开');
-              put(state,account.id,team,T.entry,key,{content});
-            } else put(state,account.id,team,T.entry,id(T.entry),{note_id:uid,kind:'text',content,entry_at:Date.now()});
-          }
-        }
-        addFiles(state,staged,account,selected,attachmentTable);
-      },staged);
-    } else {
-      await edit(state=>{
+    await edit(state=>{
         const latest=get(state,team,table,uid);
         if (latest&&!versions(state,latest).length) captureVersion(state,account.id,latest);
         let saved;
@@ -332,8 +301,7 @@ function editor(existing,rank=1) {
         }
         addFiles(state,staged,account,saved,attachmentTable);
         captureVersion(state,account.id,saved);
-      },staged);
-    }
+    },staged);
     if (table===T.bill) {
       ctx.month=String(fields.get('date')).slice(0,7);
       ctx.archive=ctx.month!==today().slice(0,7);
@@ -341,8 +309,8 @@ function editor(existing,rank=1) {
     }
     if (table===T.task&&!existing&&ctx.page==='tasks'&&ctx.filter==='done') ctx.filter='open';
     ctx.selected=uid;
-    render({ bottom:table===T.note });
-    notify(table===T.note?'便签已保存':'已保存到本机');
+    render();
+    notify('已保存到本机');
   },existing?'保存':'创建');
   editorRecord=existing;
   if (existing) dialogPreviewObserver=observePreviews(dialog,existing);
@@ -375,6 +343,92 @@ function migrate(state,opened,current,migration,accountID) {
     throw new Error('便签已更新，请重新打开再编辑');
   }
   for (const entry of migration) put(state,accountID,current.team,T.entry,entry.uid,{ ...entry.data,note_id:current.uid });
+}
+
+function openNoteEditor(existing) {
+  const team=ctx.team, section=ctx.noteSection;
+  const key=JSON.stringify([team,section,existing?.uid||'']);
+  let draft=noteEdits.get(key);
+  if (!draft) {
+    const entries=existing?noteEntries(ctx.state,existing):[];
+    const body=entries.filter(row=>row.data.kind==='text').map(row=>row.data.content||'');
+    draft={ key, team, section, existing, uid:existing?.uid||id(T.note), entries, body:body.length?body:[''],
+      title:existing?noteTitle(existing):'', parent:existing?noteParent(existing):ctx.noteFolder, files:[] };
+    noteEdits.set(key,draft);
+  }
+  ctx.selected=existing?.uid||null;
+  ctx.noteEdit=draft;
+  render();
+  document.querySelector(existing&&section!=='quick'?'#note-edit-form textarea':'#note-edit-form [name=name]')?.focus();
+}
+
+async function saveNoteEdit(draft) {
+  const local=workspace, account=ctx.account, {team,section,uid,existing,entries,parent}=draft;
+  const name=draft.title.trim();
+  if (!name) throw new Error('请输入便签标题');
+  const staged=await stageFiles(draft.files,T.entry);
+  const migration=existing?await migrationRows(existing,entries):[];
+  const originals=entries.filter(row=>row.data.kind==='text');
+  if (local!==workspace) throw new Error('登录状态已变更');
+  await edit(state=>{
+    const latest=get(state,team,T.note,uid);
+    if (existing&&(!latest||latest.removed)) throw new Error('便签已删除');
+    const legacy=latest&&!Number(latest.data.conversation_version);
+    if (legacy) migrate(state,existing,latest,migration,account.id);
+    const patch={conversation_version:1};
+    if (!existing||legacy||name!==noteTitle(existing)) {
+      if (latest&&!legacy&&noteTitle(latest)!==noteTitle(existing)&&noteTitle(latest)!==name) {
+        throw new Error('标题已在另一台设备更新，请取消后重新打开');
+      }
+      Object.assign(patch,{name,title:name});
+    }
+    if (!existing||legacy) Object.assign(patch,{attachments:'[]',status:0});
+    if ((!existing&&section!=='quick')||(customNotebook(section)&&parent!==noteParent(existing))) {
+      if (parent&&!noteFolders(state,team,section).some(folder=>folder.uid===parent)) throw new Error('目录已失效，请重新选择');
+      if (existing&&noteParent(latest)!==noteParent(existing)&&noteParent(latest)!==parent) {
+        throw new Error('目录已在另一台设备修改，请取消后重新打开');
+      }
+      patch.notebook_section=documentSection(section,parent);
+    }
+    const saved=put(state,account.id,team,T.note,uid,patch);
+    if (section!=='quick') {
+      for (const [index,content] of draft.body.entries()) {
+        const original=originals[index];
+        if (original?.data.content===content || (!original&&!content)) continue;
+        const key=original?.uid||migration.find(row=>row.legacy===original?.legacy)?.uid;
+        if (!key) {
+          put(state,account.id,team,T.entry,id(T.entry),{note_id:uid,kind:'text',content,entry_at:Date.now()});
+          continue;
+        }
+        const previous=get(state,team,T.entry,key);
+        if (!previous || previous.removed) throw new Error('段落已在另一台设备删除，请取消后重新打开');
+        if (previous.data.content!==original.data.content&&previous.data.content!==content) {
+          throw new Error('正文已在另一台设备更新，请取消后重新打开');
+        }
+        put(state,account.id,team,T.entry,key,{content});
+      }
+    }
+    addFiles(state,staged,account,saved,T.entry);
+  },staged);
+  noteEdits.delete(draft.key);
+  if (ctx.noteEdit===draft) Object.assign(ctx,{noteEdit:null,selected:uid,noteFolder:parent});
+  render();
+  notify('便签已保存');
+}
+
+function createFolderEditor() {
+  const current=noteFolders(ctx.state,ctx.team,ctx.noteSection).find(folder=>folder.uid===ctx.noteFolder);
+  ctx.folderDraft={name:'',parent:current&&current.depth<3?current.uid:''};
+  render();
+  document.querySelector('#folder-form [name=name]')?.focus();
+}
+
+async function submitFolder(draft) {
+  const account=ctx.account.id, {team,noteSection:section}=ctx;
+  const uid=id(T.note);
+  await edit(state=>saveNoteFolder(state,account,team,section,uid,draft.name,draft.parent));
+  if (ctx.folderDraft===draft) Object.assign(ctx,{folderDraft:null,noteFolder:uid});
+  render();
 }
 
 async function sendNote(note,text,files=[]) {
@@ -706,7 +760,12 @@ async function sendAI() {
 }
 
 function selectRow(uid) {
-  if (ctx.selected!==uid && ctx.page==='notes') ctx.noteDraft='';
+  if (ctx.selected!==uid && ctx.page==='notes') {
+    ctx.noteDraft='';
+    ctx.noteEdit=null;
+    const note=record(uid,T.note);
+    if (note) ctx.noteFolder=noteParent(note);
+  }
   ctx.selected=uid;
   render({ bottom:ctx.page==='notes' });
   if (matchMedia('(max-width: 940px)').matches) {
@@ -723,6 +782,15 @@ function moveCalendar(year, month) {
   ctx.day=dateKey(new Date(year,month,day));
   ctx.selected=null;
   render();
+}
+
+function revealYearDay() {
+  const grid=document.querySelector('#year-month-grid');
+  const day=grid?.querySelector('.mini-day[aria-pressed="true"]');
+  if (!day||grid.scrollHeight<=grid.clientHeight) return;
+  const viewport=grid.getBoundingClientRect(), target=day.getBoundingClientRect();
+  if (target.top<viewport.top) grid.scrollTop+=target.top-viewport.top-8;
+  else if (target.bottom>viewport.bottom) grid.scrollTop+=target.bottom-viewport.bottom+8;
 }
 
 async function interact(button) {
@@ -749,7 +817,9 @@ async function interact(button) {
     }
     case 'task-filter':ctx.filter=data.filter;render();break;
     case 'calendar-view':
-      ctx.calendarView=data.view;render();break;
+      ctx.calendarView=data.view;render();
+      if (data.view==='year') revealYearDay();
+      break;
     case 'calendar-prev':case 'calendar-next': {
       const step=act==='calendar-next'?1:-1;
       const year=ctx.calendarDate.getFullYear(), month=ctx.calendarDate.getMonth();
@@ -765,8 +835,8 @@ async function interact(button) {
     case 'day':
       ctx.day=data.date;
       ctx.calendarDate=new Date(data.date+'T00:00:00');
-      ctx.selected=null;render();break;
-    case 'today':ctx.calendarDate=new Date();ctx.day=today();ctx.selected=null;render();break;
+      ctx.selected=null;render();revealYearDay();break;
+    case 'today':ctx.calendarDate=new Date();ctx.day=today();ctx.selected=null;render();revealYearDay();break;
     case 'current-month':
       Object.assign(ctx,{archive:false,month:today().slice(0,7),billFilter:null,selected:null});render();break;
     case 'archive':
@@ -781,7 +851,18 @@ async function interact(button) {
     }
     case 'bill-unfilter':ctx.billFilter=null;render();break;
     case 'note-section':
-      ctx.noteSection=data.section;ctx.selected=null;ctx.noteDraft='';render();break;
+      Object.assign(ctx,{noteSection:data.section,selected:null,noteDraft:'',noteFolder:'',folderDraft:null,noteEdit:null});
+      render();break;
+    case 'note-folder':
+      ctx.noteFolder=data.id;render();break;
+    case 'folder-new':createFolderEditor();break;
+    case 'folder-cancel':ctx.folderDraft=null;render();break;
+    case 'note-edit-cancel':
+      if (ctx.noteEdit) noteEdits.delete(ctx.noteEdit.key);
+      ctx.noteEdit=null;render();break;
+    case 'note-files-clear':
+      if (ctx.noteEdit) ctx.noteEdit.files=[];
+      render();break;
     case 'open-media':await openMedia(button);break;
     case 'remove-entry': {
       const row=record(data.id,T.entry), note=record();
@@ -825,6 +906,13 @@ document.addEventListener('click',event=>{
 document.addEventListener('input',event=>{
   const control=event.target;
   if (control.id==='search') {ctx.query=control.value;if(!composing)render();}
+  else if (control.closest('#note-edit-form')&&ctx.noteEdit) {
+    if (control.name==='name') ctx.noteEdit.title=control.value;
+    else if (control.name==='parent') ctx.noteEdit.parent=control.value;
+    else if (control.name?.startsWith('body')) ctx.noteEdit.body[Number(control.name.slice(4))]=control.value;
+  } else if (control.closest('#folder-form')&&ctx.folderDraft&&['name','parent'].includes(control.name)) {
+    ctx.folderDraft[control.name]=control.value;
+  }
   else if (control.closest('#note-send')) ctx.noteDraft=control.value;
   else if (control.closest('#ai-send')&&control.name==='text') ctx.ai.draft=control.value;
 });
@@ -832,7 +920,14 @@ document.addEventListener('compositionstart',()=>{composing=true;});
 document.addEventListener('compositionend',()=>{composing=false;});
 document.addEventListener('change',event=>{
   const control=event.target;
-  if (control.id==='space') {ctx.team=Number(control.value);ctx.selected=null;ctx.billFilter=null;ctx.noteDraft='';render();}
+  if (control.id==='space') {
+    Object.assign(ctx,{team:Number(control.value),selected:null,billFilter:null,noteDraft:'',noteFolder:'',folderDraft:null,noteEdit:null});
+    render();
+  }
+  else if (control.id==='document-images'&&ctx.noteEdit&&control.files?.length) {
+    ctx.noteEdit.files.push(...control.files);
+    render();
+  }
   else if (control.id==='note-files'&&control.files?.length) {
     const files=[...control.files];control.value='';
     void sendNote(record(),'',files).catch(error=>notify(error.message));
@@ -851,6 +946,16 @@ document.addEventListener('change',event=>{
 document.addEventListener('submit',async event=>{
   event.preventDefault();
   const form=event.target;
+  if (form.id==='note-edit-form'||form.id==='folder-form') {
+    const documentForm=form.id==='note-edit-form';
+    const draft=documentForm?ctx.noteEdit:ctx.folderDraft;
+    if (!draft||draft.saving) return;
+    draft.saving=true;draft.error='';form.inert=true;
+    try {await (documentForm?saveNoteEdit(draft):submitFolder(draft));}
+    catch(error){draft.error=error.message;}
+    finally {draft.saving=false;render();}
+    return;
+  }
   if (form.id==='modal-form'&&formHandler) {
     const errorBox=form.querySelector('.error-text'), button=form.querySelector('[type=submit]');
     if (button.disabled) return;
@@ -885,7 +990,8 @@ mediaDialog.addEventListener('close',()=>{
 window.addEventListener('hashchange',()=>{
   const page=pageFromHash(), previous=ctx.page;
   if (previous===page) return;
-  Object.assign(ctx,{page,selected:null,query:'',day:page==='timeline'?today():null,calendarDate:new Date(),filter:defaultFilter(page),noteDraft:''});
+  Object.assign(ctx,{page,selected:null,query:'',day:page==='timeline'?today():null,calendarDate:new Date(),
+    filter:defaultFilter(page),noteDraft:'',noteFolder:'',folderDraft:null,noteEdit:null});
   if (page==='bills') ctx.billFilter=null;
   render();window.scrollTo(0,0);
   if (page==='ai') {

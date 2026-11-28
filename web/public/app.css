@@ -85,7 +85,7 @@ kbd { border:1px solid #e3e3ef; border-radius:5px; padding:1px 4px; font:11px/1.
 .work-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(228px,285px); gap:18px; align-items:start; }
 .work-main { display:grid; gap:16px; min-width:0; }
 .calendar-layout { display:grid; grid-template-columns:clamp(268px,21vw,368px) minmax(0,1fr); gap:16px; align-items:start; }
-.calendar-layout-year { grid-template-columns:clamp(296px,28vw,460px) minmax(0,1fr); }
+.calendar-layout-year { grid-template-columns:minmax(0,min(clamp(410px,48vw,1120px),calc(100% - 340px))) minmax(0,1fr); }
 .calendar-card { min-width:0; padding:16px; border:1px solid var(--line); border-radius:var(--radius);
   background:var(--paper); box-shadow:0 3px 13px #28264d07; }
 .calendar-top,.calendar-header,.calendar-header h2 { display:flex; align-items:center; gap:8px; }
@@ -106,15 +106,16 @@ kbd { border:1px solid #e3e3ef; border-radius:5px; padding:1px 4px; font:11px/1.
 .calendar-day[aria-pressed="true"] { background:var(--primary); color:white; }
 .calendar-day i { width:4px; height:4px; border-radius:50%; }
 .calendar-day .has-tasks { background:currentColor; }
-.year-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; margin-top:10px; }
-.mini-month { min-width:0; text-align:left; border:1px solid var(--line); border-radius:9px; background:white; padding:6px 4px; }
-.mini-month h3 { margin-left:4px; font-size:12px; }
-.mini-days { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); margin-top:4px; text-align:center;
-  color:var(--muted); font-size:9px; font-variant-numeric:tabular-nums; }
-.mini-days > span,.mini-day { min-height:16px; line-height:11px; padding:1px 0 0; }
+.year-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:10px; min-height:0; }
+.mini-month { min-width:0; text-align:left; border:1px solid var(--line); border-radius:10px; background:white; padding:10px 8px; }
+.mini-month h3 { margin-left:6px; font-size:15px; }
+.mini-days { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); margin-top:5px; text-align:center;
+  color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
+.mini-days > span,.mini-day { min-height:24px; line-height:15px; padding:2px 0 0; }
+.mini-days .mini-weekday { min-height:18px; line-height:14px; font-size:10px; }
 .mini-day { border:0; border-radius:4px; background:transparent; font-size:inherit; }
 .mini-day:focus-visible { position:relative; outline-offset:0; }
-.mini-day.has-tasks::after { content:""; display:block; width:3px; height:3px; margin:0 auto; border-radius:50%; background:currentColor; }
+.mini-day.has-tasks::after { content:""; display:block; width:4px; height:4px; margin:0 auto; border-radius:50%; background:currentColor; }
 .mini-days .mini-today,.mini-days .mini-picked { border-radius:4px; background:var(--violet-soft); color:var(--primary-dark); font-weight:700; }
 .mini-days .mini-picked { background:var(--primary); color:white; }
 .task-pane { min-width:0; container-type:inline-size; }
@@ -156,6 +157,8 @@ kbd { border:1px solid #e3e3ef; border-radius:5px; padding:1px 4px; font:11px/1.
 @media (min-width:851px) {
   .workspace:has(> :is(.page-tasks,.page-timeline)) > .topbar { height:56px; padding-inline:clamp(16px,1.4vw,28px); }
   .calendar-card { position:sticky; top:14px; z-index:1; max-height:calc(100svh - 28px); overflow:auto; }
+  .calendar-card.year-view { display:flex; flex-direction:column; max-height:calc(100svh - 155px); overflow:hidden; }
+  .calendar-card.year-view .year-grid { overflow:auto; scrollbar-gutter:stable; padding:1px; }
   .tasks-card .task-list-heading { position:sticky; top:0; z-index:1; }
 }
 .content-card,.inspector { min-width:0; background:var(--paper); border:1px solid var(--line); border-radius:var(--radius);
@@ -256,7 +259,29 @@ kbd { border:1px solid #e3e3ef; border-radius:5px; padding:1px 4px; font:11px/1.
 .note-year,.note-month { padding:5px 6px; }
 .note-year summary,.note-month summary { cursor:pointer; color:var(--muted); font-size:12px; padding:4px; }
 .note-month { border-left:1px solid var(--line); margin-left:8px; }
+.folder-toolbar { display:flex; align-items:center; justify-content:space-between; gap:4px; padding:3px; border-bottom:1px solid var(--line); }
+.folder-choice { display:flex; width:100%; min-width:0; align-items:center; gap:7px; padding:6px 7px; background:transparent;
+  text-align:left; border:0; border-radius:7px; color:var(--muted); font-size:13px; }
+.folder-choice > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.folder-choice:hover,.folder-choice[aria-pressed="true"] { background:var(--violet-soft); color:var(--primary-dark); }
+.folder-children { margin-left:12px; padding-left:4px; border-left:1px solid var(--line); }
+.notebook-tree { padding:4px; }
+.notebook-tree > p { padding:10px; color:var(--muted); font-size:12px; }
+.folder-form { display:grid; gap:7px; padding:9px; border-bottom:1px solid var(--line); }
+.folder-form .inline-actions { justify-content:flex-end; }
+.folder-form .error-text { padding:0; }
 .note-head { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; padding:16px 18px; border-bottom:1px solid var(--line); }
+.note-editor .note-head { align-items:center; }
+.note-editor .note-head > input { width:100%; min-width:0; padding:6px 8px; border:1px solid var(--line); border-radius:8px;
+  font-size:20px; font-weight:670; background:#fbfbfe; }
+.document-edit-body { display:grid; gap:12px; padding:16px 18px; }
+.document-edit-body > textarea { width:100%; min-height:126px; resize:vertical; padding:9px 10px; border:1px solid var(--line); border-radius:8px;
+  line-height:1.7; font-size:14px; }
+.inline-folder { display:flex; align-items:center; flex-wrap:wrap; gap:7px; color:var(--muted); font-size:12px; }
+.inline-folder select { min-width:min(210px,100%); max-width:100%; border:1px solid var(--line); border-radius:7px; padding:5px; background:#fbfbfe; }
+.editor-attachment-tools { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+.note-edit-error { color:var(--expense); font-size:12px; }
+.note-edit-error:empty,.folder-form .error-text:empty { display:none; }
 .inline-actions { display:flex; gap:4px; flex:none; }
 .messages,.document-body,.ai-turns { padding:16px 18px; overflow:auto; min-height:215px; max-height:52vh; }
 .note-entry { position:relative; margin-bottom:13px; }
@@ -382,13 +407,17 @@ input[type="checkbox"] { accent-color:var(--primary); }.form-grid details { grid
   :is(.page-tasks,.page-timeline) > .page-heading > div:first-child { display:block; }
   .page-actions .button { padding:6px 8px; min-height:32px; }
   .calendar-layout,.calendar-layout-year { grid-template-columns:1fr; gap:12px; } .calendar-card { padding:12px; }
-  .year-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
-  .mini-day,.mini-days > span { min-height:20px; line-height:13px; }
+  .year-grid { gap:7px; }
+  .mini-month { padding:7px 4px; }
+  .mini-month h3 { font-size:13px; }
+  .mini-days { font-size:11px; }
+  .mini-day,.mini-days > span { min-height:22px; line-height:14px; }
   .section-head { padding:13px 10px 8px; }.list-toolbar { padding-inline:10px; }
   .task-list { padding-inline:4px; }.task-row { gap:3px; min-height:44px; padding-inline:3px; }
   .row-main { grid-template-columns:minmax(0,1fr) 77px; }.priority { display:none; }.task-name { font-size:13px; }.task-date { font-size:10px; }
   .task-date svg { width:11px; height:11px; }.inspector { padding:13px; scroll-margin-top:125px; }
   .notes-grid,.ai-grid { grid-template-columns:1fr; gap:9px; }.notes-list,.ai-sidebar { max-height:193px; }.note-content { scroll-margin-top:125px; }
+  .note-segments button { padding-inline:10px; }
   .metric { gap:6px; padding:9px; }.currency-symbol { width:25px; height:25px; font-size:12px; }.ledger-table th,.ledger-table td { padding-inline:8px; }
   .signin { grid-template-columns:1fr; }.signin-brand { padding:22px 18px; gap:9px; }.signin-heading .brand-mark { display:none; }
   .signin-heading h1 { font-size:32px; }.signin-heading p { font-size:13px; margin-top:6px; }.signin-modules span { font-size:10px; padding:4px; }

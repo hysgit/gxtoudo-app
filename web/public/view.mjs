@@ -1,10 +1,11 @@
 import { icon } from './icons.mjs';
 import { T, addDays, dateKey, dayText, clock, utcDate, whenText, amount, money, currency, include, repeatKind,
-  priorities, billTypes, list, noteTitle, noteSection, noteEntries, taskViews, filesOf } from './domain.mjs';
+  priorities, billTypes, list, noteTitle, noteSection, noteEntries, noteFolders, noteParent, customNotebook, isNoteFolder,
+  taskViews, filesOf } from './domain.mjs';
 
 export const h = input => String(input ?? '').replace(/[&<>"']/g, c=>({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 export const pages = { tasks:'任务', timeline:'时间轴', bills:'记账', notes:'便签', ai:'AI 对话', trash:'回收站' };
-export const sections = { quick:'速记', essence:'精髓', core:'内核' };
+export const sections = { quick:'速记', essence:'精髓', core:'内核', diary:'日记', info:'信息' };
 const weekdays=['日','一','二','三','四','五','六'];
 const financeIcon = (type, code) => `<span class="currency-symbol ${type}">${h(code==='CNY'?'¥':code)}</span>`;
 export const action = (label, act, glyph, tone='secondary') => `<button type="button" class="button ${tone}" data-act="${act}">${glyph?icon(glyph,17):''}${label}</button>`;
@@ -87,9 +88,11 @@ function calendar(ctx, tasks) {
     }).join('');
   };
   const weekdaysMarkup=weekdays.slice(1).concat(weekdays[0]).map(day=>`<span>${day}</span>`).join('');
-  const contents=yearly?`<div class="year-grid">${Array.from({length:12},(_,index)=>
+  const contents=yearly?`<div id="year-month-grid" class="year-grid">${Array.from({length:12},(_,index)=>
     `<section class="mini-month" aria-label="${year}年${index+1}月">
-    <h3>${index+1}月</h3><div class="mini-days">${monthDays(index,true)}</div></section>`).join('')}</div>`:
+    <h3>${index+1}月</h3><div class="mini-days">
+    ${weekdays.slice(1).concat(weekdays[0]).map(day=>`<span class="mini-weekday" aria-hidden="true">${day}</span>`).join('')}
+    ${monthDays(index,true)}</div></section>`).join('')}</div>`:
     `<div class="calendar-weekdays" aria-hidden="true">${weekdaysMarkup}</div><div class="calendar-days">${monthDays(month,false)}</div>`;
   return `<section class="calendar-card ${yearly?'year-view':''}" aria-label="任务日历">
     <div class="calendar-top"><div class="segment" aria-label="日历视图">
@@ -287,34 +290,83 @@ function billsPage(ctx) {
 }
 
 export function noteRows(ctx) {
-  return list(ctx.state,ctx.team,T.note).filter(row=>noteSection(row)===ctx.noteSection)
+  return list(ctx.state,ctx.team,T.note).filter(row=>noteSection(row)===ctx.noteSection&&!isNoteFolder(row))
     .filter(row=>!ctx.query || (noteTitle(row)+' '+noteEntries(ctx.state,row).map(entry=>entry.data.content||'').join(' ')).toLocaleLowerCase().includes(ctx.query.toLocaleLowerCase()))
     .sort((a,b)=>utcDate(b.data.created_at)-utcDate(a.data.created_at)||b.edited-a.edited);
 }
 
-function noteButton(row,ctx,document=false) {
+function noteButton(row,ctx,document=false,custom=false) {
   const at=utcDate(row.data.created_at);
   return `<button class="note-tile ${ctx.selected===row.uid?'selected':''}" data-act="select" data-id="${h(row.uid)}">
-    <span class="note-symbol">${icon('notes',18)}</span><span><strong>${h((document&&Number.isFinite(at.getTime())?dateKey(at)+' ':'')+noteTitle(row))}</strong>
+    <span class="note-symbol">${icon('notes',18)}</span><span><strong>${h((document&&!custom&&Number.isFinite(at.getTime())?dateKey(at)+' ':'')+noteTitle(row))}</strong>
     ${document?'':`<small>${h(whenText(at))}</small>`}</span>${icon('right',16)}</button>`;
+}
+
+function folderOptions(folders,selected) {
+  return [{uid:'',path:'根目录'},...folders].map(folder=>
+    `<option value="${h(folder.uid)}" ${selected===folder.uid?'selected':''}>${h(folder.path)}</option>`).join('');
+}
+
+function notebookTree(ctx,rows,folders) {
+  const byParent=Map.groupBy(folders,folder=>folder.parent), known=new Set(folders.map(folder=>folder.uid));
+  const byFolder=Map.groupBy(rows,row=>known.has(noteParent(row))?noteParent(row):'');
+  function branch(uid) {
+    return (byParent.get(uid)||[]).map(folder=>`<div class="notebook-branch">
+      <button type="button" class="folder-choice" data-act="note-folder" data-id="${h(folder.uid)}" ${press(ctx.noteFolder===folder.uid)}>
+        ${icon('folder',16)}<span>${h(folder.name)}</span></button>
+      <div class="folder-children">${branch(folder.uid)}</div></div>`).join('')+
+      (byFolder.get(uid)||[]).map(row=>noteButton(row,ctx,true,true)).join('');
+  }
+  const draft=ctx.folderDraft;
+  return `<div class="folder-toolbar"><button class="folder-choice" type="button" data-act="note-folder" data-id="" ${press(!ctx.noteFolder)}>
+    ${icon('folder',16)}<span>根目录</span></button>${tile('新建目录','folder-new','plus')}</div>
+    ${draft?`<form id="folder-form" class="folder-form">
+      <label class="field">目录名称<input name="name" required maxlength="100" value="${h(draft.name)}"></label>
+      <label class="field">上级目录<select name="parent">${folderOptions(folders.filter(folder=>folder.depth<3),draft.parent)}</select></label>
+      <small class="error-text" role="alert">${h(draft.error)}</small>
+      <div class="inline-actions">${action('取消','folder-cancel',null,'ghost')}<button class="button primary" type="submit" ${draft.saving?'disabled':''}>创建</button></div></form>`:''}
+    <div class="notebook-tree">${branch('')||'<p>暂无目录或记录</p>'}</div>`;
+}
+
+function documentEditor(draft,folders) {
+  let index=0;
+  const paragraph=position=>`<textarea name="body${position}" aria-label="${position?'段落':'正文'}" rows="${draft.body.length===1?12:5}"
+    maxlength="60000" placeholder="输入正文…">${h(draft.body[position])}</textarea>`;
+  const content=draft.entries.map(entry=>entry.data.kind==='text'?paragraph(index++):attachmentRow(entry)).join('');
+  return `<form id="note-edit-form" class="note-editor" ${draft.saving?'inert':''}>
+    <div class="note-head"><input type="text" name="name" maxlength="100" required aria-label="标题" placeholder="标题" value="${h(draft.title)}">
+    <div class="inline-actions">${action('取消','note-edit-cancel',null,'ghost')}
+    <button type="submit" class="button primary" ${draft.saving?'disabled':''}>${draft.saving?'正在保存':'保存'}</button></div></div>
+    <div class="document-edit-body">
+      ${customNotebook(draft.section)?`<label class="inline-folder">保存目录<select name="parent">${folderOptions(folders,draft.parent)}</select></label>`:''}
+      ${draft.section==='quick'?'':`${content}${index===0?paragraph(0):''}
+        <div class="editor-attachment-tools"><label class="small-action">${icon('image',17)}插入图片
+          <input type="file" id="document-images" multiple accept="image/*"></label>
+          ${draft.files.length?`<small>已选 ${draft.files.length} 张图片</small>${action('清除已选图片','note-files-clear',null,'ghost')}`:''}</div>`}
+      <p class="note-edit-error" role="alert">${h(draft.error)}</p>
+    </div></form>`;
 }
 
 function notesPage(ctx) {
   const rows=noteRows(ctx);
   const selected=rows.find(row=>row.uid===ctx.selected);
   const docs=ctx.noteSection!=='quick';
+  const custom=customNotebook(ctx.noteSection);
+  const folders=custom?noteFolders(ctx.state,ctx.team,ctx.noteSection):[];
   const groups=Map.groupBy(rows,row=>whenText(utcDate(row.data.created_at)).slice(0,7) || '日期未知');
   const years=Map.groupBy([...groups.keys()],month=>month.slice(0,4));
   const entries=selected?noteEntries(ctx.state,selected):[];
-  const listMarkup=docs?[...years].map(([year,months])=>`<details class="note-year" open><summary>${h(year)} 年</summary>${months.map(month=>
+  const listMarkup=custom?notebookTree(ctx,rows,folders):docs?[...years].map(([year,months])=>`<details class="note-year" open><summary>${h(year)} 年</summary>${months.map(month=>
     `<details class="note-month" open><summary>${/^\d{4}-\d\d$/.test(month)?Number(month.slice(5))+' 月':h(month)}</summary>
     ${groups.get(month).map(row=>noteButton(row,ctx,true)).join('')}</details>`).join('')}</details>`).join(''):
     rows.map(row=>noteButton(row,ctx)).join('');
-  return pageHeading('便签','',action(docs?'新建记事本':'新建速记','new','plus','primary'))+
+  return pageHeading('便签','',action(custom?'新建'+sections[ctx.noteSection]:docs?'新建记事本':'新建速记','new','plus','primary'))+
     `<div class="segment note-segments">${Object.entries(sections).map(([section,label])=>`<button data-act="note-section" data-section="${section}" ${press(ctx.noteSection===section)}>${label}</button>`).join('')}</div>
       <div class="notes-grid ${selected?'has-selection':''}"><section class="content-card notes-list" aria-label="便签标题列表">
       ${listMarkup||empty('notes','暂时没有便签','')}</section>
-      <section class="content-card note-content">${selected?`<div class="note-head"><div><h2>${h(noteTitle(selected))}</h2><small>${h(whenText(utcDate(selected.data.created_at)))}</small></div>
+      <section class="content-card note-content">${ctx.noteEdit?documentEditor(ctx.noteEdit,folders):selected?`<div class="note-head"><div><h2>${h(noteTitle(selected))}</h2>
+      ${custom?(noteParent(selected)?`<small>${h(folders.find(folder=>folder.uid===noteParent(selected))?.path||'')}</small>`:''):
+        `<small>${h(whenText(utcDate(selected.data.created_at)))}</small>`}</div>
       <div class="inline-actions">${tile(docs?'编辑文档':'修改标题','edit','edit')}${tile('删除便签','delete','trash')}</div></div>
       <div id="note-messages" class="${docs?'document-body':'messages'}">
         ${entries.map(entry=>`<div class="note-entry ${entry.data.kind==='text'?'note-text':''}">

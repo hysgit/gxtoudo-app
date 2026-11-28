@@ -59,6 +59,7 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
   bool _calendarExpanded = false;
   double _calendarDrag = 0;
   NoteSection notesSection = NoteSection.quick;
+  String noteFolder = '';
   bool drawerOpen = false;
 
   @override
@@ -114,6 +115,7 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
       note?.team ?? controller.team,
       note: note,
       section: notesSection,
+      parentFolder: currentNotebookFolder?.uid ?? '',
     ),
   );
   void editBill(Item? bill) =>
@@ -836,27 +838,50 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
 
   Widget renderNotes() {
     final quick = notesSection == NoteSection.quick;
+    final folders = notebookFolders(
+      controller.data,
+      controller.team,
+      notesSection,
+    );
+    final folder = folders.where((item) => item.uid == noteFolder).firstOrNull;
+    final known = folders.map((item) => item.uid).toSet();
     final notes = filterNotes(
       controller.data
           .list(controller.team, Tables.note)
-          .where((note) => noteSection(note) == notesSection),
+          .where(
+            (note) =>
+                noteSection(note) == notesSection && !isNotebookFolder(note),
+          )
+          .where((note) {
+            if (!notesSection.customFolders) return true;
+            final parent = noteFolderParent(note);
+            return (known.contains(parent) ? parent : '') ==
+                (folder?.uid ?? '');
+          }),
     );
     return PageContent(
       key: ValueKey((controller.team, notesSection)),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
       children: [
-        SegmentedButton<NoteSection>(
-          style: const ButtonStyle(visualDensity: VisualDensity.compact),
-          segments: [
-            for (final section in NoteSection.values)
-              ButtonSegment(value: section, label: Text(section.label)),
-          ],
-          selected: {notesSection},
-          onSelectionChanged: (value) =>
-              setState(() => notesSection = value.single),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SegmentedButton<NoteSection>(
+            style: const ButtonStyle(visualDensity: VisualDensity.compact),
+            segments: [
+              for (final section in NoteSection.values)
+                ButtonSegment(value: section, label: Text(section.label)),
+            ],
+            selected: {notesSection},
+            onSelectionChanged: (value) => setState(() {
+              notesSection = value.single;
+              noteFolder = '';
+            }),
+          ),
         ),
         const SizedBox(height: 4),
-        if (notes.isEmpty)
+        if (notesSection.customFolders)
+          ...renderCustomNotebook(folders, folder, notes)
+        else if (notes.isEmpty)
           EmptyContent(
             quick ? '还没有便签' : '还没有记事本',
             icon: Icons.sticky_note_2_outlined,
@@ -867,6 +892,112 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
           ...notebookTree(notes),
       ],
     );
+  }
+
+  NotebookFolder? get currentNotebookFolder => notebookFolders(
+    controller.data,
+    controller.team,
+    notesSection,
+  ).where((item) => item.uid == noteFolder).firstOrNull;
+
+  List<Widget> renderCustomNotebook(
+    List<NotebookFolder> folders,
+    NotebookFolder? folder,
+    List<Item> notes,
+  ) {
+    final children = folders
+        .where((item) => item.parent == (folder?.uid ?? ''))
+        .toList();
+    return [
+      Row(
+        children: [
+          if (folder != null)
+            IconButton(
+              tooltip: '上级目录',
+              onPressed: () => setState(() => noteFolder = folder.parent),
+              icon: const Icon(Icons.chevron_left),
+            ),
+          Expanded(
+            child: Text(
+              folder?.path ?? '根目录',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          TextButton.icon(
+            onPressed: folder?.depth == 3
+                ? null
+                : () => createNotebookFolder(folder?.uid ?? ''),
+            icon: const Icon(Icons.create_new_folder_outlined, size: 17),
+            label: const Text('新建目录'),
+          ),
+        ],
+      ),
+      for (final child in children)
+        ListTile(
+          dense: true,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 2),
+          leading: const Icon(Icons.folder_outlined, color: blue, size: 20),
+          title: Text(child.name),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => setState(() => noteFolder = child.uid),
+        ),
+      for (final note in notes) noteCard(note),
+      if (children.isEmpty && notes.isEmpty)
+        const EmptyContent('这里还没有目录或记录', icon: Icons.folder_open_outlined),
+    ];
+  }
+
+  Future<void> createNotebookFolder(String parent) async {
+    final section = notesSection,
+        team = controller.team,
+        scope = controller.identity.scope;
+    var draft = '';
+    final submitted = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('新建目录'),
+        content: TextField(
+          autofocus: true,
+          maxLength: 100,
+          decoration: const InputDecoration(labelText: '目录名称', counterText: ''),
+          onChanged: (value) => draft = value,
+          onSubmitted: (value) => Navigator.pop(dialogContext, value),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, draft),
+            child: const Text('创建'),
+          ),
+        ],
+      ),
+    );
+    if (submitted == null || !mounted || controller.identity.scope != scope)
+      return;
+    final uid = newId(Tables.note);
+    try {
+      await controller.mutate((data, who) {
+        if (who.scope != scope) throw const FormatException('账户已切换，请重新打开目录');
+        saveNotebookFolder(
+          data,
+          who,
+          team,
+          section,
+          uid,
+          submitted,
+          parent: parent,
+        );
+      });
+      if (mounted && controller.team == team && notesSection == section) {
+        setState(() => noteFolder = uid);
+      }
+    } on FormatException catch (error) {
+      if (mounted) message(context, error.message);
+    }
   }
 
   Iterable<Widget> notebookTree(List<Item> notes) sync* {
@@ -916,7 +1047,8 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
   }
 
   Widget noteCard(Item note) {
-    final quick = noteSection(note) == NoteSection.quick;
+    final section = noteSection(note);
+    final quick = section == NoteSection.quick;
     return ListTile(
       dense: true,
       minTileHeight: 48,
@@ -926,7 +1058,7 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
       contentPadding: const EdgeInsets.symmetric(horizontal: 2),
       leading: const Icon(Icons.sticky_note_2_outlined, color: blue, size: 20),
       title: Text(
-        quick ? noteTitle(note) : notebookTitle(note),
+        quick || section.customFolders ? noteTitle(note) : notebookTitle(note),
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
         style: const TextStyle(color: ink, fontSize: 16),
@@ -951,10 +1083,12 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
     final notes = controller.data
         .list(controller.team, Tables.note)
         .where(
-          (item) => noteSearchText(
-            controller.data,
-            item,
-          ).toLowerCase().contains(needle),
+          (item) =>
+              !isNotebookFolder(item) &&
+              noteSearchText(
+                controller.data,
+                item,
+              ).toLowerCase().contains(needle),
         );
     final bills = controller.data
         .list(controller.team, Tables.bill)

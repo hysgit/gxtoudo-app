@@ -25,12 +25,14 @@ class NoteEditor extends StatefulWidget {
     this.note,
     this.files,
     this.section = NoteSection.quick,
+    this.parentFolder = '',
   });
   final TodoController controller;
   final int team;
   final Item? note;
   final MediaFiles? files;
   final NoteSection section;
+  final String parentFolder;
   @override
   State<NoteEditor> createState() => _NoteEditorState();
 }
@@ -430,6 +432,8 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
     titleTimer?.cancel();
     final values = messages();
     if (!hasSaved && title.text.trim().isEmpty && values.isEmpty) return true;
+    if (!hasSaved && section.customFolders && title.text.trim().isEmpty)
+      return false;
     final savedTitle = title.text.trim().isEmpty
         ? widget.controller.data
                   .get(widget.team, Tables.note, uid)
@@ -475,6 +479,7 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
               .toList(),
           media,
           section: section,
+          parentFolder: widget.parentFolder,
           removed: deleted,
         );
       });
@@ -564,7 +569,15 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
       message(context, '请先结束录音或等待本地保存完成');
       return;
     }
-    if (!await persist()) return;
+    if (!await persist()) {
+      if (mounted &&
+          !hasSaved &&
+          section.customFolders &&
+          title.text.trim().isEmpty) {
+        message(context, '请输入记录标题');
+      }
+      return;
+    }
     if (!mounted) return;
     if (input.text.trim().isNotEmpty &&
         !await confirm(context, '放弃未发送的文字？', '已经发送的内容会保留。')) {

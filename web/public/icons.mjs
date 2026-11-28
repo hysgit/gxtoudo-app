@@ -4,6 +4,7 @@ const paths = {
   timeline:'<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4m8-4v4M3 10h18m-12 5h2m3 0h2"/>',
   bills:'<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3 10h18m-14 4h3m3 0h4"/>',
   notes:'<path d="M6 3.5h9l4 4V19a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 19V5a1.5 1.5 0 0 1 1-1.5Z"/><path d="M14 4v5h5m-11 4h8m-8 4h5"/>',
+  folder:'<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
   ai:'<path d="M12 2.8 13.8 9l6.4 2-6.4 2-1.8 6.2L10.2 13l-6.4-2 6.4-2zM19 3v4m2-2h-4"/>',
   search:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/>',
   plus:'<path d="M12 5v14M5 12h14"/>',
