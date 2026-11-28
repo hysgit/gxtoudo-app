@@ -53,22 +53,39 @@ function pageHeading(title, subtitle, commands='') {
   return `<div class="page-heading"><div><h1>${title}</h1>${subtitle?`<p>${subtitle}</p>`:''}</div><div class="page-actions">${commands}</div></div>`;
 }
 
-function week(ctx, allTasks) {
-  const today=new Date(), focus=ctx.week;
-  const first=addDays(focus,-((focus.getDay()+6)%7));
-  const last=addDays(first,6);
-  const days=Array.from({length:7},(_,index)=>{
-    const date=addDays(first,index), value=dateKey(date);
-    const planned=allTasks.reduce((count,task)=>count+Number(Boolean(task.at(date))),0);
-    return `<button class="week-day ${value===dateKey(today)?'day-today':''}" data-act="day" data-date="${value}" ${press(ctx.day===value)}
-      aria-label="${dayText(date)} 周${weekdays[date.getDay()]}，${planned} 项任务">
-      <span>周${weekdays[date.getDay()]}</span><strong>${date.getDate()}</strong><i class="${planned?'has-tasks':''}"></i>
-    </button>`;
-  }).join('');
-  return `<section class="week-strip" aria-label="周日历">
-    <div class="week-heading"><div><small>${focus.getFullYear()} 年</small><div>${dayText(first)} <span>–</span> ${dayText(last)}</div></div>
-      <div class="week-controls"><button type="button" data-act="today">今天</button>${tile('上一周','previous-week','left')}${tile('下一周','next-week','right')}</div></div>
-    <div class="week-grid">${days}</div>
+function calendar(ctx, tasks) {
+  const now=dateKey(new Date());
+  const year=ctx.calendarDate.getFullYear(), month=ctx.calendarDate.getMonth();
+  const yearly=ctx.calendarView==='year';
+  const monthDays=(index,mini)=>{
+    const first=new Date(year,index,1), offset=(first.getDay()+6)%7;
+    const length=new Date(year,index+1,0).getDate();
+    const total=Math.ceil((offset+length)/7)*7;
+    return Array.from({length:mini?42:total},(_,position)=>{
+      const date=addDays(first,position-offset), value=dateKey(date);
+      const outside=date.getMonth()!==index;
+      if (mini) return outside?'<span></span>':
+        `<span class="${value===ctx.day?'mini-picked':value===now?'mini-today':''}">${date.getDate()}</span>`;
+      const count=tasks.reduce((sum,task)=>sum+Number(Boolean(task.at(date))),0);
+      return `<button type="button" class="calendar-day ${outside?'outside':''}" data-act="day" data-date="${value}"
+        ${value===now?'aria-current="date"':''} ${press(ctx.day===value)} aria-label="${value}，${count} 项任务">
+        <strong>${date.getDate()}</strong><i class="${count?'has-tasks':''}" aria-hidden="true"></i></button>`;
+    }).join('');
+  };
+  const weekdaysMarkup=weekdays.slice(1).concat(weekdays[0]).map(day=>`<span>${day}</span>`).join('');
+  const contents=yearly?`<div class="year-grid">${Array.from({length:12},(_,index)=>
+    `<button type="button" class="mini-month" data-act="calendar-month" data-month="${index}" aria-label="${year}年${index+1}月">
+    <strong>${index+1}月</strong><span class="mini-days" aria-hidden="true">${monthDays(index,true)}</span></button>`).join('')}</div>`:
+    `<div class="calendar-weekdays" aria-hidden="true">${weekdaysMarkup}</div><div class="calendar-days">${monthDays(month,false)}</div>`;
+  return `<section class="calendar-card ${yearly?'year-view':''}" aria-label="任务日历">
+    <div class="calendar-top"><div class="segment" aria-label="日历视图">
+      <button type="button" data-act="calendar-view" data-view="month" ${press(!yearly)}>月视图</button>
+      <button type="button" data-act="calendar-view" data-view="year" ${press(yearly)}>年视图</button>
+      </div><button type="button" class="button ghost" data-act="today">今天</button></div>
+    <div class="calendar-header"><h2><button type="button" data-act="calendar-year" title="跳转年份" aria-label="${year}年，跳转年份">${year}年${icon('down',14)}</button>
+      ${yearly?'':`<span>${month+1}月</span>`}</h2><div class="inline-actions">
+      ${tile(yearly?'上一年':'上个月','calendar-prev','left')}${tile(yearly?'下一年':'下个月','calendar-next','right')}</div></div>
+    ${contents}
   </section>`;
 }
 
@@ -102,15 +119,20 @@ function taskRow(task, selection) {
   </li>`;
 }
 
-function attachmentRow(row) {
+export function attachmentRow(row) {
   const data=row.data;
   const type=data.kind==='image'?'图片':data.kind==='audio'?'语音':'文件';
-  return `<button type="button" class="file-chip" data-act="open-media" data-id="${h(row.uid||row.legacy)}">${icon(data.kind==='image'?'image':data.kind==='audio'?'mic':'file',16)}${h(data.media_name||type)}</button>`;
+  const key=h(row.uid||row.legacy);
+  const visual=data.kind==='image'||data.kind==='audio'||/\.(png|jpe?g|gif|webp)$/i.test(data.media_name||'');
+  return `<div class="attachment-card" ${visual?`data-preview="${key}"`:''}>
+    <button type="button" class="file-chip" data-act="open-media" data-id="${key}">
+      ${icon(data.kind==='image'?'image':data.kind==='audio'?'mic':'file',16)}<span>${h(data.media_name||type)}</span></button>
+      ${visual?'<small class="preview-status" aria-live="polite"></small>':''}
+    </div>`;
 }
 
 function taskDetail(ctx, task) {
-  if (!task) return `<aside class="inspector placeholder-inspector">
-    <span class="eyebrow">任务详情</span>${empty('tasks','选择一条任务','查看计划、提醒和备注。')}</aside>`;
+  if (!task) return '';
   const row=task.row, at=task.when?new Date(task.when*1000):null;
   const subtasks=task.parts.filter(part=>part.table===T.subtask);
   const attachments=filesOf(ctx.state,row);
@@ -131,18 +153,19 @@ function tasksPage(ctx) {
   const {tasks,entries}=taskRows(ctx);
   const open=entries.filter(task=>!task.complete), completed=entries.filter(task=>task.complete);
   const shown=ctx.filter==='open'?open:ctx.filter==='done'?completed:entries;
-  const selection=entries.find(task=>task.row.uid===ctx.selected);
+  const selection=shown.find(task=>task.row.uid===ctx.selected);
   const title=ctx.page==='timeline'?'时间轴':'任务';
-  const selectedTitle=ctx.day?dayText(new Date(ctx.day+'T00:00:00'))+'的安排':'任务列表';
+  const selectedTitle=ctx.day?monthFormat(ctx.day.slice(0,7))+Number(ctx.day.slice(8))+'日的任务':'任务列表';
   return pageHeading(title,`<span class="subtle-date">${dayText(new Date())} · 周${weekdays[new Date().getDay()]}</span>`,action('新建任务','new','plus','primary')) +
-    `<div class="work-grid ${selection?'has-selection':''}"><div class="work-main">${week(ctx,tasks)}
+    `<div class="calendar-layout ${ctx.calendarView==='year'?'calendar-layout-year':''}">${calendar(ctx,tasks)}
+      <div class="task-pane"><div class="task-content ${selection?'has-selection':''}">
       <section class="content-card tasks-card"><div class="section-head"><h2>${selectedTitle}</h2>
       ${ctx.day&&ctx.page==='tasks'?action('查看全部','clear-day',null,'ghost'):''}</div>
       <div class="list-toolbar" aria-label="任务状态">${[['all','全部',entries.length],['open','待完成',open.length],['done','已完成',completed.length]]
         .map(([key,label,count])=>`<button type="button" class="filter-tab" data-act="task-filter" data-filter="${key}" ${press(ctx.filter===key)}>${label}<span>${count}</span></button>`).join('')}</div>
       ${shown.length?`<ul class="task-list">${shown.map(task=>taskRow(task,ctx.selected)).join('')}</ul>`:
         empty('tasks',ctx.query?'没有找到相关任务':'这里还没有任务',ctx.query?'试试任务名称中的其他关键词。':'',ctx.query?'':action('新建任务','new','plus','secondary'))}
-      </section></div>${taskDetail(ctx,selection)}</div>`;
+      </section>${taskDetail(ctx,selection)}</div></div></div>`;
 }
 
 export function billRows(ctx) {
@@ -252,7 +275,7 @@ function notesPage(ctx) {
       <div id="note-messages" class="${docs?'document-body':'messages'}">
         ${entries.map(entry=>`<div class="note-entry ${entry.data.kind==='text'?'note-text':''}">
           ${docs?'':`<time>${h(whenText(Number(entry.data.entry_at)))}</time>`}
-          ${entry.data.kind==='text'?`<p>${h(entry.data.content)}</p>`:`<div data-preview="${h(entry.uid||entry.legacy)}">${attachmentRow(entry)}</div>`}
+          ${entry.data.kind==='text'?`<p>${h(entry.data.content)}</p>`:attachmentRow(entry)}
           ${!docs&&entry.uid?`<button class="icon-button entry-remove" data-act="remove-entry" data-id="${h(entry.uid)}" title="删除这一条" aria-label="删除这一条">${icon('close',15)}</button>`:''}</div>`).join('')}
       </div>
       ${docs?'':`<form id="note-send" class="composer"><textarea name="text" rows="2" maxlength="60000" placeholder="写下这一刻…" aria-label="速记内容">${h(ctx.noteDraft)}</textarea>

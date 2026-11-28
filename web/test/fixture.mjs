@@ -30,6 +30,11 @@ export function fixture({ autoApprove=false }={}) {
   seed(T.detail,'86-demo-0',{task_id:'89-demo-0',type:2,content:'核对本周的三项重点，确认各项任务的交付日期。'});
   seed(T.subtask,'87-demo-0',{task_id:'89-demo-0',sequence:0,name:'回顾上周未完成事项'});
   seed(T.subtask,'87-demo-1',{task_id:'89-demo-0',sequence:1,name:'整理本周优先级'});
+  const preview=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAABAAAAAKCAIAAAAy3EnLAAAAGklEQVR4nGNM9D/MQApgIkk1w6gG4gDtgxUA2AIBh2gVloUAAAAASUVORK5CYII=','base64');
+  uploads.set('task-picture',new Blob([preview],{type:'application/octet-stream'}));
+  seed(T.taskFile,'54-demo-image',{note_id:'89-demo-0',parent_table:T.task,kind:'image',media_id:'task-picture',
+    media_name:'任务图片.png',content_type:'application/octet-stream',size:preview.length,
+    sha256:createHash('sha256').update(preview).digest('hex')});
   const month=dateKey(now).slice(0,7);
   for (const [index,[name,type,amount,channel,party]] of [
     ['工作日午餐','expense','46.80','微信','微信余额'],

@@ -1,23 +1,23 @@
 import { QrCode } from './qrcodegen.mjs';
 import { icon } from './icons.mjs';
-import { action, h, pages, shell, signin } from './view.mjs';
+import { action, attachmentRow, h, pages, shell, signin } from './view.mjs';
 import { Workspace, addFiles, digest, request, stageFiles } from './api.mjs';
-import { T, addDays, dateKey, clock, whenText, billTypes, priorities, repeatNames, reminders,
+import { T, dateKey, clock, whenText, billTypes, priorities, repeatNames, reminders,
   get, list, id, put, remove, noteEntries, noteTitle, filesOf, saveTask, taskSnapshot,
   toggleTask, restoreTaskChecks, saveBill, billSnapshot, versions, captureVersion } from './domain.mjs';
 
-const app=document.querySelector('#app'), dialog=document.querySelector('#dialog');
+const app=document.querySelector('#app'), dialog=document.querySelector('#dialog'), mediaDialog=document.querySelector('#media-dialog');
 const today=()=>dateKey(new Date());
 const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
 const ctx={
   account:null, state:null, page:pageFromHash(), team:0, selected:null, query:'',
-  week:new Date(), day:null, filter:'all', month:today().slice(0,7), billFilter:null, archive:false,
+  calendarDate:new Date(), calendarView:'month', day:null, filter:'all', month:today().slice(0,7), billFilter:null, archive:false,
   noteSection:'quick', noteDraft:'', recording:false, canDictate:!!SpeechRecognition,
   ai:{ conversations:[], turns:[], thread:'', draft:'', file:null },
   status:'正在同步', syncFailed:false,
 };
 let workspace, qrController, qrTimer, syncTimer, toastTimer, aiTimer, formHandler;
-let noteRecorder, previewObserver;
+let noteRecorder, previewObserver, dialogPreviewObserver, editorRecord;
 let login={ loading:true, message:'正在获取登录二维码…' };
 let composing=false;
 const media=new Map();
@@ -47,7 +47,8 @@ function render({ bottom=false }={}) {
   const search=active?.id==='search';
   const selection=active instanceof HTMLInputElement||active instanceof HTMLTextAreaElement
     ? [active.selectionStart,active.selectionEnd] : null;
-  const navKey=active instanceof HTMLElement && app.contains(active) ? [active.dataset.act,active.dataset.id] : null;
+  const navKey=active instanceof HTMLElement && app.contains(active) && active.matches(':focus-visible')
+    ? { ...active.dataset } : null;
   const scrollIds=['note-messages','ai-turns'];
   const previousScroll=Object.fromEntries(scrollIds.map(id=>[id,document.getElementById(id)?.scrollTop||0]));
   const collapsed=[...app.querySelectorAll('details:not([open]) > summary')].map(node=>node.textContent);
@@ -65,8 +66,9 @@ function render({ bottom=false }={}) {
       const next=search?document.querySelector('#search'):document.querySelector('#'+field+' textarea');
       next?.focus({ preventScroll:true });
       if (next && selection && selection[0]!==null) next.setSelectionRange(...selection);
-    } else if (navKey?.[0] && active?.matches(':focus-visible')) {
-      [...app.querySelectorAll('[data-act]')].find(node=>node.dataset.act===navKey[0]&&node.dataset.id===navKey[1])?.focus({ preventScroll:true });
+    } else if (navKey?.act) {
+      [...app.querySelectorAll('[data-act]')].find(node=>Object.entries(navKey).every(([key,value])=>node.dataset[key]===value))
+        ?.focus({ preventScroll:true });
     }
     schedulePreviews();
   } else if (login.qr) paintQR(login.qr);
@@ -156,8 +158,10 @@ async function forgetAccount() {
   workspace=null;
   if (noteRecorder?.state==='recording') noteRecorder.stop();
   previewObserver?.disconnect();
+  dialogPreviewObserver?.disconnect();
   for (const value of media.values()) if (value.url) URL.revokeObjectURL(value.url);
   media.clear();
+  if (mediaDialog.open) mediaDialog.close();
   if (dialog.open) dialog.close();
   Object.assign(ctx,{ account:null, state:null, selected:null, query:'', noteDraft:'', recording:false,
     ai:{ conversations:[], turns:[], thread:'', draft:'', file:null } });
@@ -199,6 +203,8 @@ const check=(name,label,value)=>`<label class="field-check"><input type="checkbo
 const splitLines=value=>String(value||'').split('\n').map(line=>line.trim()).filter(Boolean);
 
 function openDialog(title,body,handler=null,submitLabel='保存') {
+  editorRecord=null;
+  dialogPreviewObserver?.disconnect();
   formHandler=handler;
   dialog.innerHTML=`<div class="dialog-head"><h2 id="dialog-title">${h(title)}</h2>
     <button class="icon-button" type="button" data-act="close" aria-label="关闭">${icon('close',18)}</button></div>
@@ -228,11 +234,11 @@ function editor(existing) {
       ${field('提醒方式',select('reminderMode',[['both','闹钟和系统推送'],['alarm','闹钟'],['notification','系统推送']], current.reminderMode))}
       ${field('重复',select('repeat',repeatNames.map((label,i)=>[i,label]),current.repeat))}
       ${field('备注',textarea('remark',current.remark,3,'maxlength="12000"'),true)}
-      <details><summary>子任务、复盘与附件</summary>
+      <details><summary>子任务、标签与复盘</summary>
       ${field('子任务（每行一条）',textarea('children',current.children?.join('\n'),3))}
       ${field('标签（每行一个）',textarea('tags',current.tags?.join('\n'),2))}
-      ${field('复盘',textarea('review',current.review,2,'maxlength="12000"'))}
-      ${fileFields(attachments)}</details></div>`;
+      ${field('复盘',textarea('review',current.review,2,'maxlength="12000"'))}</details>
+      ${fileFields(attachments)}</div>`;
   } else if (table===T.bill) {
     current=existing?billSnapshot(ctx.state,existing):{ date:today(),type:'expense',currency:'CNY',channel:'支付宝',party:'支付宝余额',
       include_in_totals:1,include_in_party_stats:1 };
@@ -253,7 +259,7 @@ function editor(existing) {
       ${check('include_in_party_stats',current.type==='income'?'计入收入统计':'计入支出统计',Number(current.include_in_party_stats))}
       ${field('地点',input('location',current.location,'maxlength="200"'),true)}
       ${field('备注',textarea('remark',current.remark,3,'maxlength="12000"'),true)}
-      <details><summary>备注附件</summary>${fileFields(attachments)}</details></div>`;
+      ${fileFields(attachments)}</div>`;
   } else {
     const docs=selectedSection!=='quick';
     current=existing?noteEntries(ctx.state,existing):[];
@@ -335,14 +341,18 @@ function editor(existing) {
     render({ bottom:table===T.note });
     notify(table===T.note?'便签已保存':'已保存到本机');
   },existing?'保存':'创建');
+  editorRecord=existing;
+  if (existing) dialogPreviewObserver=observePreviews(dialog,existing);
 }
 
 function datalist(id,values) {
   return `<datalist id="${id}">${[...new Set(values.filter(Boolean))].map(value=>`<option value="${h(value)}"></option>`).join('')}</datalist>`;
 }
 function fileFields(files) {
-  return field('添加图片、音频或文件','<input name="files" type="file" multiple>',true)+files.map(file=>
-    `<label class="field-check"><input type="checkbox" name="detach" value="${h(file.uid)}">移除 ${h(file.data.media_name||'附件')}</label>`).join('');
+  return `<section class="editor-attachments"><h3>附件</h3>
+    ${files.length?`<div class="editor-files">${files.map(file=>`<div>${attachmentRow(file)}
+      <label class="field-check"><input type="checkbox" name="detach" value="${h(file.uid)}">保存时移除</label></div>`).join('')}</div>`:''}
+    ${field('添加图片、音频或文件','<input name="files" type="file" multiple>',true)}</section>`;
 }
 function parseSchedule(value,override,previous) {
   if (!value) return 0;
@@ -448,34 +458,52 @@ function deleteRecord(row) {
 
 function schedulePreviews() {
   previewObserver?.disconnect();
-  previewObserver=new IntersectionObserver(entries=>{
+  const row=record();
+  if (row) previewObserver=observePreviews(app,row);
+}
+function observePreviews(root,parent) {
+  const files=recordFiles(parent);
+  const observer=new IntersectionObserver(entries=>{
     for (const entry of entries) if (entry.isIntersecting) {
-      previewObserver.unobserve(entry.target);
-      void fillPreview(entry.target);
+      observer.unobserve(entry.target);
+      const file=files.find(file=>(file.uid||file.legacy)===entry.target.dataset.preview);
+      if (file) void fillPreview(entry.target,file);
     }
   });
-  for (const node of document.querySelectorAll('[data-preview]')) previewObserver.observe(node);
+  for (const node of root.querySelectorAll('[data-preview]')) observer.observe(node);
+  return observer;
 }
 const imageType=/^image\/(?:png|jpeg|gif|webp|avif|bmp|heic|heif)$/i;
 const audioType=/^audio\/(?:wav|mpeg|mp4|ogg|webm|aac|x-wav|x-m4a)$/i;
 function elementFor(blob,url) {
   if (imageType.test(blob.type)) {
-    const item=new Image();item.alt='便签图片';item.src=url;item.loading='lazy';return item;
+    const item=new Image();item.alt='附件图片';item.src=url;return item;
   }
   if (audioType.test(blob.type)) {
     const item=document.createElement('audio');item.controls=true;item.preload='metadata';item.src=url;return item;
   }
   return null;
 }
-async function fillPreview(node) {
-  const note=record(), local=workspace;
-  if (ctx.page!=='notes'||!note||!local) return;
-  const row=noteEntries(ctx.state,note).find(row=>(row.uid||row.legacy)===node.dataset.preview);
-  if (!row || row.data.kind==='text') return;
-  const key=note.team+':'+note.uid+':'+node.dataset.preview;
+async function previewBlob(blob) {
+  if (imageType.test(blob.type)||audioType.test(blob.type)) return blob;
+  // Older file attachments may have a generic MIME type. Only enable inline
+  // display when the bytes identify a supported passive image format.
+  const bytes=new Uint8Array(await blob.slice(0,16).arrayBuffer());
+  const head=new TextDecoder('latin1').decode(bytes);
+  const type=bytes[0]===137&&head.slice(1,8)==='PNG\r\n\x1a\n'?'image/png':
+    bytes[0]===255&&bytes[1]===216&&bytes[2]===255?'image/jpeg':
+    /^GIF8[79]a/.test(head)?'image/gif':
+    head.startsWith('RIFF')&&head.slice(8,12)==='WEBP'?'image/webp':'';
+  return type?blob.slice(0,blob.size,type):blob;
+}
+async function fillPreview(node,row) {
+  const local=workspace;
+  if (!local) return;
+  const key=[row.team,row.uid||row.legacy,row.data.media_id,row.data.client_media_id,row.data.sha256].join(':');
+  const status=node.querySelector('.preview-status');
   let cached=media.get(key);
   if (!cached) {
-    cached={ promise:local.file(row) };
+    cached={ promise:local.file(row).then(previewBlob) };
     media.set(key,cached);
   }
   try {
@@ -483,36 +511,61 @@ async function fillPreview(node) {
     if (workspace!==local || !node.isConnected) return;
     if (!cached.url) cached.url=URL.createObjectURL(blob);
     const element=elementFor(blob,cached.url);
-    if (element) {
-      if (element instanceof HTMLImageElement) element.addEventListener('error',()=>element.remove(),{once:true});
+    if (element instanceof HTMLImageElement) {
+      const button=node.querySelector('.file-chip');
+      element.alt='';
+      button.prepend(element);
+      button.classList.add('thumbnail-button');
+      element.addEventListener('error',()=>{
+        element.remove();button.classList.remove('thumbnail-button');
+        status.textContent='此图片无法预览，可下载原文件';
+      },{once:true});
+    } else if (element) {
       node.prepend(element);
+    } else if (row.data.kind==='image') {
+      status.textContent='此图片格式无法预览，可下载原文件';
     }
-  } catch { media.delete(key); }
+  } catch (error) {
+    if (media.get(key)===cached) media.delete(key);
+    if (node.isConnected && workspace===local) status.textContent=error.message;
+  }
 }
 
-async function openMedia(id) {
-  const row=record(), local=workspace;
-  if (!row) return;
-  const file=row.table===T.note?noteEntries(ctx.state,row).find(item=>(item.uid||item.legacy)===id):
-    filesOf(ctx.state,row).find(item=>item.uid===id);
+function recordFiles(row) {
+  return row.table===T.note?noteEntries(ctx.state,row).filter(item=>item.data.kind!=='text'):filesOf(ctx.state,row);
+}
+
+async function openMedia(button) {
+  const row=dialog.contains(button)?editorRecord:record(), local=workspace;
+  if (!row || !local) return;
+  const file=recordFiles(row).find(item=>(item.uid||item.legacy)===button.dataset.id);
   if (!file) return;
   await showMedia(file.data.media_name||'附件',async()=>local.file(file));
 }
 
 async function showMedia(name, readFile) {
   const job=++mediaJob;
-  openDialog(name,'<div class="media-display">正在读取附件…</div>');
+  if (modalURL) URL.revokeObjectURL(modalURL);
+  modalURL=null;
+  mediaDialog.innerHTML=`<div class="dialog-head"><h2 id="media-title">${h(name)}</h2>
+    <button class="icon-button" type="button" data-act="close-media" aria-label="关闭预览">${icon('close',18)}</button></div>
+    <div class="dialog-body"><div class="media-display" role="status">正在读取附件…</div></div>`;
+  if (!mediaDialog.open) mediaDialog.showModal();
   try {
-    const blob=await readFile();
-    if (job!==mediaJob||!dialog.open) return;
+    const blob=await previewBlob(await readFile());
+    if (job!==mediaJob||!mediaDialog.open) return;
     modalURL=URL.createObjectURL(blob);
-    const display=dialog.querySelector('.media-display'), preview=elementFor(blob,modalURL);
+    const display=mediaDialog.querySelector('.media-display'), preview=elementFor(blob,modalURL);
     display.replaceChildren();
     if (preview) display.append(preview);
+    preview?.addEventListener('error',()=>{
+      preview.remove();
+      display.prepend('浏览器无法预览此附件。');
+    },{once:true});
     const link=document.createElement('a');
     link.className='button secondary';link.download=name;link.href=modalURL;link.textContent='下载原文件';display.append(link);
   } catch (error) {
-    if (job===mediaJob&&dialog.open) dialog.querySelector('.media-display').textContent=error.message;
+    if (job===mediaJob&&mediaDialog.open) mediaDialog.querySelector('.media-display').textContent=error.message;
   }
 }
 
@@ -658,9 +711,24 @@ function selectRow(uid) {
   }
 }
 
+const minYear=1970, maxYear=9999;
+function moveCalendar(year, month, { monthView=false }={}) {
+  const target=new Date(year,month,1);
+  if (target.getFullYear()<minYear||target.getFullYear()>maxYear) return;
+  ctx.calendarDate=target;
+  if (monthView) ctx.calendarView='month';
+  if (ctx.day||ctx.page==='timeline') {
+    const day=monthView?1:Math.min(Number(ctx.day?.slice(8))||1,new Date(year,month+1,0).getDate());
+    ctx.day=dateKey(new Date(year,month,day));
+  }
+  ctx.selected=null;
+  render();
+}
+
 async function interact(button) {
   const act=button.dataset.act, data=button.dataset;
   if (act==='close') { dialog.close();return; }
+  if (act==='close-media') { mediaDialog.close();return; }
   if (act==='qr-refresh') { await startLogin();return; }
   if (!ctx.account || !ctx.state) return;
   switch(act) {
@@ -680,15 +748,27 @@ async function interact(button) {
       break;
     }
     case 'task-filter':ctx.filter=data.filter;render();break;
-    case 'previous-week':case 'next-week':
-      ctx.week=addDays(ctx.week,act==='next-week'?7:-7);
-      if (ctx.day||ctx.page==='timeline') ctx.day=dateKey(ctx.week);
-      ctx.selected=null;render();break;
+    case 'calendar-view':
+      ctx.calendarView=data.view;render();break;
+    case 'calendar-prev':case 'calendar-next': {
+      const step=act==='calendar-next'?1:-1;
+      const year=ctx.calendarDate.getFullYear(), month=ctx.calendarDate.getMonth();
+      moveCalendar(year+(ctx.calendarView==='year'?step:0),month+(ctx.calendarView==='month'?step:0));
+      break;
+    }
+    case 'calendar-year':
+      openDialog('跳转年份',field('年份',input('year',ctx.calendarDate.getFullYear(),
+        `type="number" min="${minYear}" max="${maxYear}" step="1" required autofocus`),true),async form=>{
+        moveCalendar(Number(new FormData(form).get('year')),ctx.calendarDate.getMonth());
+      },'跳转');
+      break;
+    case 'calendar-month':
+      moveCalendar(ctx.calendarDate.getFullYear(),Number(data.month),{monthView:true});break;
     case 'day':
       ctx.day=ctx.day===data.date&&ctx.page==='tasks'?null:data.date;
-      ctx.week=new Date(data.date+'T00:00:00');
+      ctx.calendarDate=new Date(data.date+'T00:00:00');
       ctx.selected=null;render();break;
-    case 'today':ctx.week=new Date();ctx.day=today();ctx.selected=null;render();break;
+    case 'today':ctx.calendarDate=new Date();ctx.day=today();ctx.selected=null;render();break;
     case 'clear-day':ctx.day=null;ctx.selected=null;render();break;
     case 'current-month':
       Object.assign(ctx,{archive:false,month:today().slice(0,7),billFilter:null,selected:null});render();break;
@@ -705,7 +785,7 @@ async function interact(button) {
     case 'bill-unfilter':ctx.billFilter=null;render();break;
     case 'note-section':
       ctx.noteSection=data.section;ctx.selected=null;ctx.noteDraft='';render();break;
-    case 'open-media':await openMedia(data.id);break;
+    case 'open-media':await openMedia(button);break;
     case 'remove-entry': {
       const row=record(data.id,T.entry), note=record();
       if (row?.data.note_id!==note?.uid) break;
@@ -794,16 +874,21 @@ document.addEventListener('submit',async event=>{
 });
 dialog.addEventListener('close',()=>{
   if (dialog.open) return;
+  editorRecord=null;
+  dialogPreviewObserver?.disconnect();
+  formHandler=null;
+});
+mediaDialog.addEventListener('close',()=>{
+  if (mediaDialog.open) return;
   mediaJob++;
   if (modalURL) URL.revokeObjectURL(modalURL);
   modalURL=null;
-  formHandler=null;
 });
 
 window.addEventListener('hashchange',()=>{
   const page=pageFromHash(), previous=ctx.page;
   if (previous===page) return;
-  Object.assign(ctx,{page,selected:null,query:'',day:page==='timeline'?today():null,week:new Date(),filter:'all',noteDraft:''});
+  Object.assign(ctx,{page,selected:null,query:'',day:page==='timeline'?today():null,calendarDate:new Date(),filter:'all',noteDraft:''});
   if (page==='bills') ctx.billFilter=null;
   render();window.scrollTo(0,0);
   if (page==='ai') {
