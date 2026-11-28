@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import 'appearance.dart';
+import 'app_lock.dart';
 import 'backup_page.dart';
 import 'catalog.dart';
 import 'cloud_pages.dart';
@@ -18,10 +19,17 @@ import 'record_history_page.dart';
 import 'ai_page.dart';
 
 class TodoApp extends StatelessWidget {
-  const TodoApp(this.controller, {super.key, this.onReminder, this.onResume});
+  const TodoApp(
+    this.controller, {
+    super.key,
+    this.onReminder,
+    this.onResume,
+    this.appLock,
+  });
   final TodoController controller;
   final Future<void> Function(String mode)? onReminder;
   final VoidCallback? onResume;
+  final AppLock? appLock;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -31,21 +39,36 @@ class TodoApp extends StatelessWidget {
     locale: const Locale('zh', 'CN'),
     localizationsDelegates: GlobalMaterialLocalizations.delegates,
     supportedLocales: const [Locale('zh', 'CN'), Locale('en')],
+    builder: appLock == null
+        ? null
+        : (context, child) => AppLockGate(appLock!, child!),
     home: ListenableBuilder(
       listenable: controller,
       builder: (context, _) =>
           controller.desktop && controller.ready && controller.account == null
           ? desktopAccountLogin(controller)
-          : Workbench(controller, onReminder: onReminder, onResume: onResume),
+          : Workbench(
+              controller,
+              onReminder: onReminder,
+              onResume: onResume,
+              appLock: appLock,
+            ),
     ),
   );
 }
 
 class Workbench extends StatefulWidget {
-  const Workbench(this.controller, {super.key, this.onReminder, this.onResume});
+  const Workbench(
+    this.controller, {
+    super.key,
+    this.onReminder,
+    this.onResume,
+    this.appLock,
+  });
   final TodoController controller;
   final Future<void> Function(String mode)? onReminder;
   final VoidCallback? onResume;
+  final AppLock? appLock;
   @override
   State<Workbench> createState() => _WorkbenchState();
 }
@@ -389,6 +412,23 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
             '账户与服务端',
             () => go(AccountPage(controller)),
           ),
+          if (widget.appLock case final lock?)
+            ListenableBuilder(
+              listenable: lock,
+              builder: (context, _) => SwitchListTile(
+                secondary: const Icon(Icons.lock_outline),
+                title: const Text('应用解锁'),
+                value: lock.enabled,
+                onChanged: lock.busy
+                    ? null
+                    : (value) async {
+                        final error = await lock.setEnabled(value);
+                        if (error != null && context.mounted) {
+                          message(context, error);
+                        }
+                      },
+              ),
+            ),
           if (controller.syncStatus.isNotEmpty)
             Padding(
               padding: const EdgeInsets.all(12),

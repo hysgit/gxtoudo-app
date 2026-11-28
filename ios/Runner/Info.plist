@@ -6,6 +6,8 @@
 	<string>$(GXTODO_APNS_ENVIRONMENT)</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>用于为你创建的账单自动记录所在地点。</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>使用系统面容 ID 验证身份，解锁高效Todo。</string>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>net.icycloud.fdtodolist.sync.refresh</string>

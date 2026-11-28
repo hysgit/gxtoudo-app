@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:material_ui/material_ui.dart';
 
+import 'app_lock.dart';
 import 'controller.dart';
 import 'home.dart';
 import 'reminders.dart';
@@ -31,6 +32,9 @@ void main() {
   runApp(
     TodoApp(
       controller,
+      appLock: Platform.isAndroid || Platform.isIOS
+          ? AppLock(controller.repository)
+          : null,
       onReminder: controller.desktop ? null : reminders.request,
       onResume: reminders.queue,
     ),
