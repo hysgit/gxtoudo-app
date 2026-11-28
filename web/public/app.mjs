@@ -793,6 +793,23 @@ function revealYearDay() {
   else if (target.bottom>viewport.bottom) grid.scrollTop+=target.bottom-viewport.bottom+8;
 }
 
+let wheelOffset=0, lastWheelAt=0, lastWheelMonthAt=-Infinity, lastWheelDirection=0;
+app.addEventListener('wheel',event=>{
+  if (ctx.page!=='timeline'||ctx.calendarView!=='month'||event.ctrlKey||event.metaKey||event.shiftKey||
+      !event.target.closest?.('.calendar-days,.calendar-weekdays')||Math.abs(event.deltaY)<=Math.abs(event.deltaX)) return;
+  event.preventDefault();
+  const now=performance.now(), direction=Math.sign(event.deltaY);
+  if (now-lastWheelAt>160||Math.sign(wheelOffset)!==direction) wheelOffset=0;
+  lastWheelAt=now;
+  if (direction===lastWheelDirection&&now-lastWheelMonthAt<180) return;
+  wheelOffset+=event.deltaY*(event.deltaMode===1?16:event.deltaMode===2?window.innerHeight:1);
+  if (Math.abs(wheelOffset)<24) return;
+  wheelOffset=0;
+  lastWheelDirection=direction;
+  lastWheelMonthAt=now;
+  moveCalendar(ctx.calendarDate.getFullYear(),ctx.calendarDate.getMonth()-direction);
+},{passive:false});
+
 async function interact(button) {
   const act=button.dataset.act, data=button.dataset;
   if (act==='close') { dialog.close();return; }

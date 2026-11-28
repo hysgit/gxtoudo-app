@@ -85,7 +85,7 @@ kbd { border:1px solid #e3e3ef; border-radius:5px; padding:1px 4px; font:11px/1.
 .work-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(228px,285px); gap:18px; align-items:start; }
 .work-main { display:grid; gap:16px; min-width:0; }
 .calendar-layout { display:grid; grid-template-columns:clamp(268px,21vw,368px) minmax(0,1fr); gap:16px; align-items:start; }
-.calendar-layout-year { grid-template-columns:minmax(0,min(clamp(410px,48vw,1120px),calc(100% - 340px))) minmax(0,1fr); }
+.calendar-layout-year { grid-template-columns:minmax(0,min(clamp(380px,44vw,620px),calc(100% - 340px))) minmax(0,1fr); }
 .calendar-card { min-width:0; padding:16px; border:1px solid var(--line); border-radius:var(--radius);
   background:var(--paper); box-shadow:0 3px 13px #28264d07; }
 .calendar-top,.calendar-header,.calendar-header h2 { display:flex; align-items:center; gap:8px; }
@@ -108,11 +108,11 @@ kbd { border:1px solid #e3e3ef; border-radius:5px; padding:1px 4px; font:11px/1.
 .calendar-day .has-tasks { background:currentColor; }
 .year-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:10px; min-height:0; }
 .mini-month { min-width:0; text-align:left; border:1px solid var(--line); border-radius:10px; background:white; padding:10px 8px; }
-.mini-month h3 { margin-left:6px; font-size:15px; }
+.mini-month h3 { margin-left:6px; font-size:16px; }
 .mini-days { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); margin-top:5px; text-align:center;
-  color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
-.mini-days > span,.mini-day { min-height:24px; line-height:15px; padding:2px 0 0; }
-.mini-days .mini-weekday { min-height:18px; line-height:14px; font-size:10px; }
+  color:var(--muted); font-size:14px; font-variant-numeric:tabular-nums; }
+.mini-days > span,.mini-day { min-height:26px; line-height:17px; padding:2px 0 0; }
+.mini-days .mini-weekday { min-height:18px; line-height:14px; font-size:11px; }
 .mini-day { border:0; border-radius:4px; background:transparent; font-size:inherit; }
 .mini-day:focus-visible { position:relative; outline-offset:0; }
 .mini-day.has-tasks::after { content:""; display:block; width:4px; height:4px; margin:0 auto; border-radius:50%; background:currentColor; }

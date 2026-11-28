@@ -68,6 +68,11 @@ const set=async (select,value)=>evaluate(`(() => {const field=document.querySele
   field.dispatchEvent(new Event('input',{bubbles:true}));})()`);
 const submit=async selector=>evaluate(`document.querySelector(${JSON.stringify(selector)}).requestSubmit()`);
 const content=(selector,text)=>`document.querySelector(${JSON.stringify(selector)})?.textContent.includes(${JSON.stringify(text)})`;
+async function wheel(selector,deltaY) {
+  const point=await evaluate(`(() => {const b=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
+    return {x:b.left+b.width/2,y:b.top+Math.min(b.height/2,80)};})()`);
+  await call('Input.dispatchMouseEvent',{type:'mouseWheel',...point,deltaX:0,deltaY},sessionId);
+}
 async function screenshot(name,width=1440,height=930) {
   await call('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false},sessionId);
   await delay(150);
@@ -105,7 +110,8 @@ try {
   await expectPage(`(() => {
     const cards=[...document.querySelectorAll('.mini-month')].map(card=>card.getBoundingClientRect());
     return cards[0].top===cards[1].top && cards[1].top<cards[2].top && cards[0].left===cards[2].left &&
-      cards[0].width>250 && document.querySelector('.mini-day').getBoundingClientRect().height>=24;
+      cards[0].width>250 && document.querySelector('.mini-day').getBoundingClientRect().height>=26 &&
+      getComputedStyle(document.querySelector('.mini-day')).fontSize==='14px';
   })()`,'十二区月卡按两列排列且日期放大');
   const nextDay=await evaluate(`document.querySelector('.mini-day[aria-current=date]').nextElementSibling?.dataset.date ||
     document.querySelector('.mini-day[aria-current=date]').previousElementSibling?.dataset.date`);
@@ -119,6 +125,10 @@ try {
       document.querySelector('.calendar-header').getBoundingClientRect().top>=0;
   })()`,'年历在列内滚动并保证所选日期可见');
   await screenshot('calendar-year');
+  await screenshot('calendar-year-wide',2560,1269);
+  await expectPage(`document.querySelector('.calendar-card').getBoundingClientRect().width<=620 &&
+    getComputedStyle(document.querySelector('.mini-day')).fontSize==='14px'`,'宽屏年历限宽而日期文字等比例放大');
+  await call('Emulation.setDeviceMetricsOverride',{width:1440,height:930,deviceScaleFactor:1,mobile:false},sessionId);
   await choose('[data-act=calendar-year]');
   await set('#modal-form [name=year]','2028');
   await submit('#modal-form');
@@ -133,8 +143,12 @@ try {
   await choose('[data-act=calendar-view][data-view=year]');
   await choose('.mini-day[data-date="2028-12-31"]');
   await choose('[data-act=calendar-view][data-view=month]');
-  await choose('[data-act=calendar-next]');
-  await expectPage(`!!document.querySelector('[data-date="2029-01-31"]')`,'十二月至次年一月');
+  await wheel('.calendar-days',-120);
+  await expectPage(`!!document.querySelector('.calendar-day[data-date="2029-01-31"][aria-pressed=true]')`,'月历向上滚到下一月并跨年');
+  await wheel('.calendar-days',120);
+  await expectPage(`!!document.querySelector('.calendar-day[data-date="2028-12-31"][aria-pressed=true]')`,'月历向下滚到上一月并跨年');
+  await wheel('.tasks-card',-120);
+  await expectPage(`!!document.querySelector('.calendar-day[data-date="2028-12-31"][aria-pressed=true]')`,'任务区滚动保持月份');
   await choose('[data-act=today]');
   await expectPage('document.querySelectorAll(".task-row").length===2','点今天筛选任务');
   await goto('tasks');
