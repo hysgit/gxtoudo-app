@@ -1,5 +1,5 @@
 import { icon } from './icons.mjs';
-import { T, addDays, dateKey, dayText, clock, utcDate, whenText, amount, money, currency, include,
+import { T, addDays, dateKey, dayText, clock, utcDate, whenText, amount, money, currency, include, repeatKind,
   priorities, billTypes, list, noteTitle, noteSection, noteEntries, taskViews, filesOf } from './domain.mjs';
 
 export const h = input => String(input ?? '').replace(/[&<>"']/g, c=>({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
@@ -57,6 +57,17 @@ function calendar(ctx, tasks) {
   const now=dateKey(new Date());
   const year=ctx.calendarDate.getFullYear(), month=ctx.calendarDate.getMonth();
   const yearly=ctx.calendarView==='year';
+  const byDate=new Map(), recurring=[];
+  for (const task of tasks) {
+    if (!task.start) continue;
+    if (repeatKind(task.repeat?.data || {})) {
+      recurring.push(task);
+    } else {
+      const date=new Date(task.start*1000);
+      const key=dateKey(date);
+      if (task.at(date)) byDate.set(key,(byDate.get(key)||0)+1);
+    }
+  }
   const monthDays=(index,mini)=>{
     const first=new Date(year,index,1), offset=(first.getDay()+6)%7;
     const length=new Date(year,index+1,0).getDate();
@@ -64,9 +75,10 @@ function calendar(ctx, tasks) {
     return Array.from({length:mini?42:total},(_,position)=>{
       const date=addDays(first,position-offset), value=dateKey(date);
       const outside=date.getMonth()!==index;
-      if (mini) return outside?'<span></span>':
-        `<span class="${value===ctx.day?'mini-picked':value===now?'mini-today':''}">${date.getDate()}</span>`;
-      const count=tasks.reduce((sum,task)=>sum+Number(Boolean(task.at(date))),0);
+      if (mini&&outside) return '<span></span>';
+      const count=recurring.reduce((sum,task)=>sum+Number(Boolean(task.at(date))),byDate.get(value)||0);
+      if (mini) return `<span class="mini-day ${value===ctx.day?'mini-picked':value===now?'mini-today':''}${count?' has-tasks':''}"
+        data-date="${value}" title="${value}，${count} 项任务">${date.getDate()}</span>`;
       return `<button type="button" class="calendar-day ${outside?'outside':''}" data-act="day" data-date="${value}"
         ${value===now?'aria-current="date"':''} ${press(ctx.day===value)} aria-label="${value}，${count} 项任务">
         <strong>${date.getDate()}</strong><i class="${count?'has-tasks':''}" aria-hidden="true"></i></button>`;

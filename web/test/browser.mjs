@@ -87,9 +87,14 @@ try {
   backend.approve();
   await expectPage(content('.task-list','整理本周的工作计划'),'任务同步');
   await expectPage('document.querySelector(".calendar-card").getBoundingClientRect().right < document.querySelector(".tasks-card").getBoundingClientRect().left','日历左、任务列表右');
+  const monthMarks=await evaluate(`Array.from(document.querySelectorAll('.calendar-day:not(.outside)')).map(day=>[day.dataset.date,!!day.querySelector('.has-tasks')])`);
   await screenshot('tasks');
   await choose('[data-act=calendar-view][data-view=year]');
   await expectPage('document.querySelectorAll(".mini-month").length===12','年视图 12 个月');
+  const yearMarks=Object.fromEntries(await evaluate(`Array.from(document.querySelectorAll('.mini-day')).map(day=>[day.dataset.date,day.classList.contains('has-tasks')])`));
+  assert.ok(monthMarks.some(([,marked])=>marked) && monthMarks.some(([,marked])=>!marked));
+  for(const [day,marked] of monthMarks) assert.equal(yearMarks[day],marked,day);
+  await expectPage(`getComputedStyle(document.querySelector('.mini-day.has-tasks'),'::after').width==='3px'`,'年历圆点可见');
   await screenshot('calendar-year');
   await choose('[data-act=calendar-year]');
   await set('#modal-form [name=year]','2028');
@@ -211,6 +216,23 @@ try {
   await call('Emulation.setDeviceMetricsOverride',{width:1440,height:680,deviceScaleFactor:1,mobile:false},sessionId);
   await evaluate('window.scrollTo(0,300)');
   await expectPage('scrollY>=200&&document.querySelector(".calendar-card").getBoundingClientRect().top===14&&document.querySelector(".task-list-heading").getBoundingClientRect().top===0','长列表滚动时固定日历与筛选栏');
+  await goto('timeline');
+  await choose('[data-act=calendar-view][data-view=year]');
+  await choose('[data-act=calendar-year]');
+  await set('#modal-form [name=year]','2028');
+  await submit('#modal-form');
+  await expectPage(`!document.querySelector('#dialog').open && !!document.querySelector('.mini-day[data-date="2028-02-29"]:not(.has-tasks)')`,'跨年后闰日初始无任务');
+  const leap=new Date(2028,1,29,9).getTime()/1000;
+  backend.seed(T.task,'89-year-marks',{name:'闰日重复任务',rank:1,privacy:6720});
+  backend.seed(T.schedule,'79-year-marks',{task_id:'89-year-marks',start_at:leap,end_at:leap+3600,is_all_day:0});
+  backend.seed(T.repeat,'78-year-marks',{task_id:'89-year-marks',schedule_id:'79-year-marks',
+    repeat_start_day:leap,day_interval:86400,repeat_count:2});
+  await choose('[data-act=sync]');
+  await expectPage(`!!document.querySelector('.mini-day.has-tasks[data-date="2028-02-29"]') &&
+    !!document.querySelector('.mini-day.has-tasks[data-date="2028-03-01"]') &&
+    !!document.querySelector('.mini-day[data-date="2028-03-02"]:not(.has-tasks)')`,'年历同步后显示闰日及重复任务圆点');
+  await choose('[data-act=calendar-next]');
+  await expectPage(`!!document.querySelector('.mini-day[data-date="2029-03-01"]') && !document.querySelector('.mini-day.has-tasks')`,'切换年份后清除旧年份标记');
   assert.deepEqual(errors,[]);
   console.log('Chromium 通过 2560px 对齐、长列表吸顶、390px 窄屏、月历跨年、附件预览和现有业务验收。');
 } finally {
