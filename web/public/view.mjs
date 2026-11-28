@@ -159,11 +159,15 @@ function tasksPage(ctx) {
   return pageHeading(title,`<span class="subtle-date">${dayText(new Date())} · 周${weekdays[new Date().getDay()]}</span>`,action('新建任务','new','plus','primary')) +
     `<div class="calendar-layout ${ctx.calendarView==='year'?'calendar-layout-year':''}">${calendar(ctx,tasks)}
       <div class="task-pane"><div class="task-content ${selection?'has-selection':''}">
-      <section class="content-card tasks-card"><div class="section-head"><h2>${selectedTitle}</h2>
+      <section class="content-card tasks-card"><div class="task-list-heading"><div class="section-head"><h2>${selectedTitle}</h2>
       ${ctx.day&&ctx.page==='tasks'?action('查看全部','clear-day',null,'ghost'):''}</div>
       <div class="list-toolbar" aria-label="任务状态">${[['all','全部',entries.length],['open','待完成',open.length],['done','已完成',completed.length]]
-        .map(([key,label,count])=>`<button type="button" class="filter-tab" data-act="task-filter" data-filter="${key}" ${press(ctx.filter===key)}>${label}<span>${count}</span></button>`).join('')}</div>
-      ${shown.length?`<ul class="task-list">${shown.map(task=>taskRow(task,ctx.selected)).join('')}</ul>`:
+        .map(([key,label,count])=>`<button type="button" class="filter-tab" data-act="task-filter" data-filter="${key}" ${press(ctx.filter===key)}>${label}<span>${count}</span></button>`).join('')}</div></div>
+      ${shown.length?(ctx.filter==='all'&&open.length&&completed.length?
+        `<div class="task-groups">${[['open','待完成',open],['done','已完成',completed]].map(([key,label,items])=>
+          `<section class="task-group" data-group="${key}"><h3>${label} <span>${items.length}</span></h3>
+          <ul class="task-list">${items.map(task=>taskRow(task,ctx.selected)).join('')}</ul></section>`).join('')}</div>`:
+        `<ul class="task-list">${shown.map(task=>taskRow(task,ctx.selected)).join('')}</ul>`):
         empty('tasks',ctx.query?'没有找到相关任务':'这里还没有任务',ctx.query?'试试任务名称中的其他关键词。':'',ctx.query?'':action('新建任务','new','plus','secondary'))}
       </section>${taskDetail(ctx,selection)}</div></div></div>`;
 }

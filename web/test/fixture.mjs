@@ -112,5 +112,5 @@ export function fixture({ autoApprove=false }={}) {
       res.writeHead(500);res.end();
     }
   });
-  return { server, records, approve(){for(const grant of grants.values())grant.approved=true;} };
+  return { server, records, seed, approve(){for(const grant of grants.values())grant.approved=true;} };
 }

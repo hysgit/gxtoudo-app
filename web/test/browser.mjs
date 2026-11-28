@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createWebServer } from '../server.mjs';
 import { fixture, listen } from './fixture.mjs';
+import { T } from '../public/domain.mjs';
 
 const chromium=process.argv[2];
 if (!chromium) throw new Error('请传入 Chrome 或 Edge 可执行文件路径');
@@ -122,6 +123,7 @@ try {
   await choose('#dialog .dialog-head [data-act=close]');
   await choose('[data-act=complete][data-id="89-demo-0"]');
   await expectPage(content('.inspector .status-pill','已完成'),'任务勾选');
+  await expectPage('document.querySelector(".task-group[data-group=done] .task-row.completed") !== null','完成后进入已完成分组');
   await choose('[data-act=complete][data-id="89-demo-0"]');
   await expectPage(content('.inspector .status-pill','待完成'),'任务恢复');
   await choose('.page-actions [data-act=new]');
@@ -184,8 +186,33 @@ try {
   assert.ok([...backend.records.values()].some(row=>row.data.name==='精确金额测试'&&row.data.amount==='12.037'));
   assert.ok([...backend.records.values()].some(row=>row.data.content==='发送立即保存'));
   assert.ok([...backend.records.values()].some(row=>row.data.media_id));
+  for (const [index,title] of ['检查资料附件','准备周末采购','核对已完成事项','预订会议室','整理项目文档',
+    '更新本周计划','备份工作文件','核对报销单','预约设备维护','整理待办清单','更新资料索引','归档会议纪要',
+    '完成本月复盘','查看下周安排','归档参考资料','确认交付清单'].entries()) {
+    const uid='89-wide-'+index;
+    const at=Math.floor(Date.now()/1000)+(index-12)*3600;
+    backend.seed(T.task,uid,{name:title,rank:index%4+1,privacy:6720});
+    backend.seed(T.schedule,'79-wide-'+index,{task_id:uid,start_at:at,end_at:at+3600,is_all_day:0});
+    if(index>=10)backend.seed(T.check,'76-wide-'+index,{task_id:uid,start_at:at,check_at:at+600,status:1});
+  }
+  await choose('[data-act=sync]');
+  await expectPage('document.querySelectorAll(".task-row").length===23','宽屏数据和长列表');
+  await call('Emulation.setDeviceMetricsOverride',{width:2560,height:1269,deviceScaleFactor:1,mobile:false},sessionId);
+  await choose('[data-act=select][data-id="89-demo-0"]');
+  await expectPage(`(() => {
+    const workspace=document.querySelector('.workspace').getBoundingClientRect();
+    const calendar=document.querySelector('.calendar-card').getBoundingClientRect();
+    const tasks=document.querySelector('.tasks-card').getBoundingClientRect();
+    const detail=document.querySelector('.inspector').getBoundingClientRect();
+    return calendar.left-workspace.left<=28 && workspace.right-detail.right<=28 &&
+      calendar.right<tasks.left && tasks.right<detail.left && calendar.top<130;
+  })()`,'2560 像素视口紧邻导航与完整三栏');
+  await screenshot('tasks-wide',2560,1269);
+  await call('Emulation.setDeviceMetricsOverride',{width:1440,height:680,deviceScaleFactor:1,mobile:false},sessionId);
+  await evaluate('window.scrollTo(0,300)');
+  await expectPage('scrollY>=200&&document.querySelector(".calendar-card").getBoundingClientRect().top===14&&document.querySelector(".task-list-heading").getBoundingClientRect().top===0','长列表滚动时固定日历与筛选栏');
   assert.deepEqual(errors,[]);
-  console.log('Chromium 通过月历与跨年、任务原图及草稿保留、扫码、任务、回收站、账单、便签和 AI 验收。');
+  console.log('Chromium 通过 2560px 对齐、长列表吸顶、390px 窄屏、月历跨年、附件预览和现有业务验收。');
 } finally {
   browser.kill();
   gateway.close();

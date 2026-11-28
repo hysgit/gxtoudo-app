@@ -67,6 +67,11 @@ kbd { border:1px solid #e3e3ef; border-radius:5px; padding:1px 4px; font:11px/1.
 .page-heading h1 { font-size:clamp(29px,3.2vw,41px); letter-spacing:-.075em; line-height:1.15; font-weight:740; }
 .page-heading p { margin-top:8px; font-size:13px; color:var(--muted); }
 .page-actions { display:flex; align-items:center; gap:8px; flex:none; }
+.page:is(.page-tasks,.page-timeline) { max-width:none; margin:0; padding:18px clamp(16px,1.4vw,28px) 30px; }
+:is(.page-tasks,.page-timeline) > .page-heading { min-height:36px; margin-bottom:14px; }
+:is(.page-tasks,.page-timeline) > .page-heading > div:first-child { display:flex; align-items:baseline; flex-wrap:wrap; gap:5px 10px; }
+:is(.page-tasks,.page-timeline) > .page-heading h1 { font-size:26px; letter-spacing:-.05em; }
+:is(.page-tasks,.page-timeline) > .page-heading p { margin:0; }
 .button,.icon-button,.small-action { display:inline-flex; align-items:center; justify-content:center; gap:7px; white-space:nowrap;
   border:1px solid transparent; border-radius:9px; padding:8px 12px; min-height:35px; font-size:13px; font-weight:620; }
 .button.primary { background:var(--primary); color:white; box-shadow:0 2px 5px #5746d233; }
@@ -79,8 +84,8 @@ kbd { border:1px solid #e3e3ef; border-radius:5px; padding:1px 4px; font:11px/1.
 .icon-button { width:34px; height:34px; min-height:0; padding:0; }
 .work-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(228px,285px); gap:18px; align-items:start; }
 .work-main { display:grid; gap:16px; min-width:0; }
-.calendar-layout { display:grid; grid-template-columns:minmax(285px,335px) minmax(0,1fr); gap:18px; align-items:start; }
-.calendar-layout-year { grid-template-columns:minmax(340px,440px) minmax(0,1fr); }
+.calendar-layout { display:grid; grid-template-columns:clamp(268px,21vw,368px) minmax(0,1fr); gap:16px; align-items:start; }
+.calendar-layout-year { grid-template-columns:clamp(296px,28vw,460px) minmax(0,1fr); }
 .calendar-card { min-width:0; padding:16px; border:1px solid var(--line); border-radius:var(--radius);
   background:var(--paper); box-shadow:0 3px 13px #28264d07; }
 .calendar-top,.calendar-header,.calendar-header h2 { display:flex; align-items:center; gap:8px; }
@@ -111,15 +116,22 @@ kbd { border:1px solid #e3e3ef; border-radius:5px; padding:1px 4px; font:11px/1.
 .mini-days .mini-picked { background:var(--primary); color:white; }
 .task-pane { min-width:0; container-type:inline-size; }
 .task-content { display:grid; gap:14px; align-items:start; min-width:0; }
-@container (min-width: 740px) {
-  .task-content.has-selection { grid-template-columns:minmax(0,1fr) 245px; }
+.tasks-card { container-type:inline-size; }
+@container (min-width: 720px) {
+  .task-content.has-selection { grid-template-columns:minmax(0,1fr) clamp(248px,28cqi,360px); }
+  .task-content .inspector { max-height:calc(100svh - 28px); overflow:auto; }
 }
-@container (max-width: 739px) {
+@container (max-width: 719px) {
   .task-content .inspector { grid-row:1; position:static; }
 }
-@container (max-width: 430px) {
+@container (max-width: 460px) {
   .task-content .row-main { grid-template-columns:minmax(0,1fr) 86px; }
   .task-content .priority { display:none; }
+}
+@media (min-width:851px) {
+  .workspace:has(> :is(.page-tasks,.page-timeline)) > .topbar { height:56px; padding-inline:clamp(16px,1.4vw,28px); }
+  .calendar-card { position:sticky; top:14px; z-index:1; max-height:calc(100svh - 28px); overflow:auto; }
+  .tasks-card .task-list-heading { position:sticky; top:0; z-index:1; }
 }
 .content-card,.inspector { min-width:0; background:var(--paper); border:1px solid var(--line); border-radius:var(--radius);
   box-shadow:0 3px 13px #28264d07; }
@@ -133,8 +145,14 @@ kbd { border:1px solid #e3e3ef; border-radius:5px; padding:1px 4px; font:11px/1.
 .filter-tab:hover,.segment button:hover { background:#f6f4ff; }
 .filter-tab[aria-pressed="true"],.segment button[aria-pressed="true"] { background:var(--violet-soft); color:var(--primary-dark); }
 .task-list { list-style:none; padding:0 10px 9px; }
+.task-list-heading { border-radius:var(--radius) var(--radius) 0 0; background:var(--paper); }
+.tasks-card .section-head { padding:12px 15px 6px; }
+.tasks-card .list-toolbar { padding:0 15px 7px; }
+.task-group h3 { display:flex; align-items:center; gap:6px; padding:9px 17px 5px; color:var(--muted); font-size:12px; }
+.task-group h3 span { font-weight:500; font-variant-numeric:tabular-nums; }
+.task-group + .task-group { border-top:1px solid var(--line); }
 .task-row { display:grid; grid-template-columns:27px minmax(0,1fr) 28px; align-items:center; gap:8px;
-  min-height:46px; padding:5px 7px; border-bottom:1px solid #eeeff4; border-radius:7px; }
+  min-height:39px; padding:3px 7px; border-bottom:1px solid #eeeff4; border-radius:7px; }
 .task-row:last-child { border-bottom-color:transparent; }
 .task-row:hover,.task-row.selected { background:#f7f5ff; }
 .task-check { display:grid; place-items:center; width:20px; height:20px; justify-self:center; border-radius:6px;
@@ -142,7 +160,7 @@ kbd { border:1px solid #e3e3ef; border-radius:5px; padding:1px 4px; font:11px/1.
 .task-check:hover { border-color:#7764e1; color:var(--primary-dark); }
 .completed .task-check { border-color:#c2b6f7; background:#e9e3ff; }
 .completed .task-name { color:#67697e; text-decoration:line-through; }
-.row-main { display:grid; grid-template-columns:minmax(0,1fr) 122px 89px; align-items:center; gap:7px; width:100%; padding:3px 0;
+.row-main { display:grid; grid-template-columns:minmax(0,1fr) minmax(104px,22%) minmax(74px,13%); align-items:center; gap:7px; width:100%; padding:3px 0;
   border:0; text-align:left; background:transparent; }
 .task-name { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-weight:610; font-size:14px; }
 .task-date,.priority { display:inline-flex; gap:5px; align-items:center; font-size:11px; white-space:nowrap; color:var(--muted); }
@@ -171,7 +189,6 @@ kbd { border:1px solid #e3e3ef; border-radius:5px; padding:1px 4px; font:11px/1.
 .empty { min-height:140px; padding:22px 12px; display:grid; align-content:center; justify-items:center; gap:8px; text-align:center; }
 .empty strong { font-size:14px; }.empty p { font-size:12px; color:var(--muted); }.empty .button { margin-top:4px; }
 .empty-icon { display:grid; place-items:center; background:#f0edfc; border-radius:12px; width:42px; height:42px; color:#7363bf; }
-.placeholder-inspector .empty { min-height:179px; }
 .segment { display:inline-flex; gap:3px; width:max-content; max-width:100%; background:white; border:1px solid var(--line); border-radius:10px; padding:3px; }
 .segment button { padding:7px 14px; }
 .archive-months { display:flex; flex-wrap:wrap; gap:8px; font-size:13px; color:var(--muted); }
@@ -315,7 +332,7 @@ input[type="checkbox"] { accent-color:var(--primary); }.form-grid details { grid
   .row-main { grid-template-columns:minmax(0,1fr) 97px 74px; }.priority,.task-date { gap:3px; }
 }
 @media (max-width:940px) {
-  .work-grid { grid-template-columns:1fr; }.inspector { position:static; }.placeholder-inspector { display:none; }
+  .work-grid { grid-template-columns:1fr; }.inspector { position:static; }
   .work-grid.has-selection .inspector { grid-row:1; }
   .shell { grid-template-columns:156px minmax(0,1fr); }.brand { margin-inline:1px; font-size:16px; }.brand-mark { width:34px; height:34px; }
   .sidebar { padding-inline:9px; }.space-copy strong { font-size:12px; }.space-mark { width:27px; height:27px; }
@@ -336,6 +353,8 @@ input[type="checkbox"] { accent-color:var(--primary); }.form-grid details { grid
   .topbar { height:46px; padding:0 12px; gap:6px; }.top-actions { gap:6px; }.searchbar { width:min(205px,43vw); padding:4px 6px; }
   .breadcrumb { gap:4px; }.path-home,.breadcrumb > svg,kbd { display:none; }.account-avatar { width:25px; height:25px; font-size:11px; }
   .page { padding:17px 11px 27px; }.page-heading { margin-bottom:14px; }.page-heading h1 { font-size:28px; }.page-heading p { margin-top:4px; }
+  .page:is(.page-tasks,.page-timeline) { padding:12px 11px 24px; }
+  :is(.page-tasks,.page-timeline) > .page-heading > div:first-child { display:block; }
   .page-actions .button { padding:6px 8px; min-height:32px; }
   .calendar-layout,.calendar-layout-year { grid-template-columns:1fr; gap:12px; } .calendar-card { padding:12px; }
   .section-head { padding:13px 10px 8px; }.list-toolbar { padding-inline:10px; }
