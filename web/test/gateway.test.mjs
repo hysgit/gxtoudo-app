@@ -81,3 +81,13 @@ test('重复规则、日期和 Markdown 保持可用',()=>{
   assert.doesNotMatch(html,/<script>/);
   assert.match(html,/&lt;script&gt;/);
 });
+
+test('便签 Markdown 能展示链接和引用，原样转义 HTML 与危险链接',()=>{
+  const html=markdown('## 标题\n\n> 引用\n\n`**代码**` [资料](https://example.com/?a=1&b=2) [坏链接](javascript:alert) <img src=x onerror=alert(1)>');
+  assert.match(html,/<h4>标题<\/h4>/);
+  assert.match(html,/<blockquote><p>引用<\/p><\/blockquote>/);
+  assert.match(html,/<code>\*\*代码\*\*<\/code>/);
+  assert.match(html,/href="https:\/\/example.com\/\?a=1&amp;b=2"/);
+  assert.doesNotMatch(html,/href="javascript:|<img/);
+  assert.match(html,/&lt;img/);
+});

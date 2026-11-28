@@ -311,10 +311,19 @@ function notebookTree(ctx,rows,folders) {
   const byParent=Map.groupBy(folders,folder=>folder.parent), known=new Set(folders.map(folder=>folder.uid));
   const byFolder=Map.groupBy(rows,row=>known.has(noteParent(row))?noteParent(row):'');
   function branch(uid) {
-    return (byParent.get(uid)||[]).map(folder=>`<div class="notebook-branch">
-      <button type="button" class="folder-choice" data-act="note-folder" data-id="${h(folder.uid)}" ${press(ctx.noteFolder===folder.uid)}>
-        ${icon('folder',16)}<span>${h(folder.name)}</span></button>
-      <div class="folder-children">${branch(folder.uid)}</div></div>`).join('')+
+    return (byParent.get(uid)||[]).map(folder=>{
+      const open=!ctx.collapsedNoteFolders.has(folder.uid);
+      const hasChildren=byParent.has(folder.uid)||byFolder.has(folder.uid);
+      const key=h(folder.uid), label=h((open?'收起':'展开')+folder.name);
+      return `<div class="notebook-branch"><div class="folder-line">
+        ${hasChildren?`<button type="button" class="icon-button folder-toggle" data-act="folder-toggle" data-id="${key}"
+          aria-label="${label}" title="${label}" aria-expanded="${open}" aria-controls="folder-children-${key}">${icon(open?'down':'right',14)}</button>`:
+          '<span class="folder-toggle-spacer" aria-hidden="true"></span>'}
+        <button type="button" class="folder-choice" data-act="note-folder" data-id="${key}" ${press(ctx.noteFolder===folder.uid)}>
+          ${icon('folder',16)}<span>${h(folder.name)}</span></button></div>
+        ${hasChildren?`<div class="folder-children" id="folder-children-${key}" ${open?'':'hidden'}>${open?branch(folder.uid):''}</div>`:''}
+        </div>`;
+    }).join('')+
       (byFolder.get(uid)||[]).map(row=>noteButton(row,ctx,true,true)).join('');
   }
   const draft=ctx.folderDraft;
@@ -330,19 +339,27 @@ function notebookTree(ctx,rows,folders) {
 
 function documentEditor(draft,folders) {
   let index=0;
-  const paragraph=position=>`<textarea name="body${position}" aria-label="${position?'段落':'正文'}" rows="${draft.body.length===1?12:5}"
-    maxlength="60000" placeholder="输入正文…">${h(draft.body[position])}</textarea>`;
+  const isDocument=draft.section!=='quick';
+  const paragraph=position=>draft.preview
+    ? `<div class="markdown note-markdown-preview">${markdown(draft.body[position])||'<p class="muted">暂无正文</p>'}</div>`
+    : `<textarea name="body${position}" aria-label="${position?'段落':'正文'}" rows="${draft.body.length===1?18:7}"
+      maxlength="60000" placeholder="输入 Markdown 正文…">${h(draft.body[position])}</textarea>`;
   const content=draft.entries.map(entry=>entry.data.kind==='text'?paragraph(index++):attachmentRow(entry)).join('');
-  return `<form id="note-edit-form" class="note-editor" ${draft.saving?'inert':''}>
+  return `<form id="note-edit-form" class="note-editor ${isDocument?'document-editor':''}"
+    data-single-body="${draft.body.length===1}" ${draft.saving?'inert':''}>
     <div class="note-head"><input type="text" name="name" maxlength="100" required aria-label="标题" placeholder="标题" value="${h(draft.title)}">
     <div class="inline-actions">${action('取消','note-edit-cancel',null,'ghost')}
     <button type="submit" class="button primary" ${draft.saving?'disabled':''}>${draft.saving?'正在保存':'保存'}</button></div></div>
     <div class="document-edit-body">
       ${customNotebook(draft.section)?`<label class="inline-folder">保存目录<select name="parent">${folderOptions(folders,draft.parent)}</select></label>`:''}
-      ${draft.section==='quick'?'':`${content}${index===0?paragraph(0):''}
+      ${isDocument?`<div class="document-tools"><div class="segment note-editor-mode" aria-label="Markdown 编辑模式">
+          <button type="button" data-act="note-editor-mode" data-mode="edit" ${press(!draft.preview)}>编辑</button>
+          <button type="button" data-act="note-editor-mode" data-mode="preview" ${press(!!draft.preview)}>预览</button>
+        </div>
         <div class="editor-attachment-tools"><label class="small-action">${icon('image',17)}插入图片
           <input type="file" id="document-images" multiple accept="image/*"></label>
-          ${draft.files.length?`<small>已选 ${draft.files.length} 张图片</small>${action('清除已选图片','note-files-clear',null,'ghost')}`:''}</div>`}
+          ${draft.files.length?`<small>已选 ${draft.files.length} 张图片</small>${action('清除已选图片','note-files-clear',null,'ghost')}`:''}</div>
+        </div>${content}${index===0?paragraph(0):''}`:''}
       <p class="note-edit-error" role="alert">${h(draft.error)}</p>
     </div></form>`;
 }
@@ -362,7 +379,7 @@ function notesPage(ctx) {
     rows.map(row=>noteButton(row,ctx)).join('');
   return pageHeading('便签','',action(custom?'新建'+sections[ctx.noteSection]:docs?'新建记事本':'新建速记','new','plus','primary'))+
     `<div class="segment note-segments">${Object.entries(sections).map(([section,label])=>`<button data-act="note-section" data-section="${section}" ${press(ctx.noteSection===section)}>${label}</button>`).join('')}</div>
-      <div class="notes-grid ${selected?'has-selection':''}"><section class="content-card notes-list" aria-label="便签标题列表">
+      <div class="notes-grid ${selected?'has-selection':''}"><section id="notes-list" class="content-card notes-list" aria-label="便签标题列表">
       ${listMarkup||empty('notes','暂时没有便签','')}</section>
       <section class="content-card note-content">${ctx.noteEdit?documentEditor(ctx.noteEdit,folders):selected?`<div class="note-head"><div><h2>${h(noteTitle(selected))}</h2>
       ${custom?(noteParent(selected)?`<small>${h(folders.find(folder=>folder.uid===noteParent(selected))?.path||'')}</small>`:''):
@@ -371,7 +388,7 @@ function notesPage(ctx) {
       <div id="note-messages" class="${docs?'document-body':'messages'}">
         ${entries.map(entry=>`<div class="note-entry ${entry.data.kind==='text'?'note-text':''}">
           ${docs?'':`<time>${h(whenText(Number(entry.data.entry_at)))}</time>`}
-          ${entry.data.kind==='text'?`<p>${h(entry.data.content)}</p>`:attachmentRow(entry)}
+          ${entry.data.kind==='text'?(docs?`<div class="markdown">${markdown(entry.data.content)}</div>`:`<p>${h(entry.data.content)}</p>`):attachmentRow(entry)}
           ${!docs&&entry.uid?`<button class="icon-button entry-remove" data-act="remove-entry" data-id="${h(entry.uid)}" title="删除这一条" aria-label="删除这一条">${icon('close',15)}</button>`:''}</div>`).join('')}
       </div>
       ${docs?'':`<form id="note-send" class="composer"><textarea name="text" rows="2" maxlength="60000" placeholder="写下这一刻…" aria-label="速记内容">${h(ctx.noteDraft)}</textarea>
@@ -382,8 +399,17 @@ function notesPage(ctx) {
 }
 
 export function markdown(text) {
-  const inline = value => h(value).replace(/`([^`]+)`/g,'<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/\*([^*]+)\*/g,'<em>$1</em>');
+  const format = value => h(value).replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g,'<em>$1</em>').replace(/~~([^~]+)~~/g,'<del>$1</del>');
+  const inline = value => value.split(/(`[^`]+`|\[[^\]\n]+\]\([^\s()]+\))/g).map(part=>{
+    if (/^`[^`]+`$/.test(part)) return '<code>'+h(part.slice(1,-1))+'</code>';
+    const link=/^\[([^\]]+)\]\(([^\s()]+)\)$/.exec(part);
+    if (!link) return format(part);
+    const url=URL.parse(link[2]);
+    return url&&['https:','http:','mailto:'].includes(url.protocol)
+      ? `<a href="${h(url.href)}" rel="noopener noreferrer" target="_blank">${format(link[1])}</a>`
+      : format(part);
+  }).join('');
   const lines=String(text||'').replaceAll('\r','').split('\n');
   const output=[];
   for (let i=0;i<lines.length;i++) {
@@ -402,6 +428,13 @@ export function markdown(text) {
       while (lines[i+1]?.includes('|') && lines[i+1].trim()) body.push(cells(lines[++i]));
       output.push('<div class="table-scroll"><table><thead><tr>'+header.map(cell=>'<th>'+cell+'</th>').join('')+'</tr></thead><tbody>'+
         body.map(row=>'<tr>'+row.map(cell=>'<td>'+cell+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>');
+    } else if (/^> ?/.test(line)) {
+      const quote=[];
+      while (i<lines.length && /^> ?/.test(lines[i])) quote.push('<p>'+inline(lines[i++].replace(/^> ?/,''))+'</p>');
+      i--;
+      output.push('<blockquote>'+quote.join('')+'</blockquote>');
+    } else if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+      output.push('<hr>');
     } else if (/^\s*([-*]|\d+\.) /.test(line)) {
       const ordered=/^\s*\d+\./.test(line), tag=ordered?'ol':'ul', items=[];
       while (i<lines.length && /^\s*([-*]|\d+\.) /.test(lines[i])) items.push('<li>'+inline(lines[i++].replace(/^\s*([-*]|\d+\.) /,''))+'</li>');

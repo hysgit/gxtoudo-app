@@ -258,8 +258,28 @@ try {
   await choose('[data-act=note-section][data-section=diary]');
   await choose('.note-tile[data-act=select]');
   await choose('.note-head [data-act=edit]');
+  await expectPage(`document.querySelector('#note-edit-form textarea').getBoundingClientRect().height>=480`,'文档编辑区随屏幕放大');
+  const markdownDraft='## 两列日记\n\n**原地写作**\n\n> 引用一段话';
+  await set('#note-edit-form textarea',markdownDraft);
+  await choose('[data-act=note-editor-mode][data-mode=preview]');
+  await expectPage(`document.querySelector('.note-markdown-preview h4')?.textContent==='两列日记' &&
+    document.querySelector('.note-markdown-preview strong')?.textContent==='原地写作' &&
+    !!document.querySelector('.note-markdown-preview blockquote')`,'原地 Markdown 预览');
+  await screenshot('note-markdown-preview');
+  await choose('[data-act=note-editor-mode][data-mode=edit]');
+  await expectPage(`document.querySelector('#note-edit-form textarea')?.value===${JSON.stringify(markdownDraft)}`,'预览返回保留 Markdown 草稿');
+  await choose('[data-act=folder-toggle][aria-label="收起生活"]');
+  await expectPage(`!!document.querySelector('[aria-label="展开生活"][aria-expanded=false]') &&
+    !document.querySelector('.note-tile.selected') &&
+    document.querySelector('#note-edit-form textarea')?.value===${JSON.stringify(markdownDraft)}`,'折叠目录隐藏子项并保留草稿');
+  await choose('[data-act=sync]');
+  await expectPage(`document.querySelector('#sync-status')?.textContent==='已同步' &&
+    !!document.querySelector('[aria-label="展开生活"][aria-expanded=false]')`,'同步刷新保留目录折叠');
+  await choose('[data-act=folder-toggle][aria-label="展开生活"]');
+  await expectPage(`!!document.querySelector('.note-tile.selected')&&!!document.querySelector('[aria-label="收起生活"][aria-expanded=true]')`,'展开目录恢复子项');
   await screenshot('note-inline-edit');
-  await choose('[data-act=note-edit-cancel]');
+  await submit('#note-edit-form');
+  await expectPage(content('.document-body h4','两列日记'),'保存后正文按 Markdown 显示');
 
   await goto('ai');
   await set('#ai-send textarea','汇总本月支出');
@@ -328,7 +348,7 @@ try {
   await choose('[data-act=calendar-next]');
   await expectPage(`!!document.querySelector('.mini-day[data-date="2029-03-01"]') && !document.querySelector('.mini-day.has-tasks')`,'切换年份后清除旧年份标记');
   assert.deepEqual(errors,[]);
-  console.log('Chromium 通过两列年历、点日和滚动、四象限、日记信息、三层目录、正文原地编辑及内联图片验收。');
+  console.log('Chromium 通过便签 Markdown、草稿保留、目录折叠、两列年历、四象限和原有业务验收。');
 } finally {
   browser.kill();
   gateway.close();

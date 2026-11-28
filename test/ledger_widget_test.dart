@@ -12,6 +12,74 @@ import 'package:material_ui/material_ui.dart';
 import 'memory_repository.dart';
 
 void main() {
+  testWidgets('账单的红绿排除标记各占固定位置', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(320, 850));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final data = WorkspaceData();
+    final bills = [
+      for (final (index, (totals, stats)) in [
+        (1, 1),
+        (0, 1),
+        (1, 0),
+        (0, 0),
+      ].indexed)
+        data.save(Identity.guest, -1, Tables.bill, '$index', {
+          'name': '账目 $index',
+          'date': '2026-10-31',
+          'type': index.isEven ? 'expense' : 'income',
+          'amount': '400.00',
+          'include_in_totals': totals,
+          billPartyStatsField: stats,
+        }),
+    ];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Column(
+            children: [
+              for (final bill in bills)
+                BillTile(bill, key: ValueKey(bill.uid), onTap: () {}),
+            ],
+          ),
+        ),
+      ),
+    );
+    Finder slot(int index, String name) => find.descendant(
+      of: find.byKey(ValueKey('$index')),
+      matching: find.byKey(ValueKey(name)),
+    );
+    Finder marker(Finder parent) =>
+        find.descendant(of: parent, matching: find.text('☑'));
+    final total = slot(0, 'bill-total-slot'),
+        party = slot(0, 'bill-party-slot');
+    final left = tester.getTopLeft(total).dx,
+        right = tester.getTopLeft(party).dx;
+    expect(right, greaterThan(left));
+    for (var i = 0; i < bills.length; i++) {
+      final leftSlot = slot(i, 'bill-total-slot'),
+          rightSlot = slot(i, 'bill-party-slot');
+      expect(tester.getTopLeft(leftSlot).dx, left);
+      expect(tester.getTopLeft(rightSlot).dx, right);
+      expect(
+        marker(leftSlot),
+        i == 1 || i == 3 ? findsOneWidget : findsNothing,
+      );
+      expect(
+        marker(rightSlot),
+        i == 2 || i == 3 ? findsOneWidget : findsNothing,
+      );
+    }
+    expect(
+      tester.widget<Text>(marker(slot(3, 'bill-total-slot'))).style?.color,
+      const Color(0xffb2493a),
+    );
+    expect(
+      tester.widget<Text>(marker(slot(3, 'bill-party-slot'))).style?.color,
+      const Color(0xff28754a),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('账单自动发现信用卡，首次设置账单日后分币种显示并保存在本机', (tester) async {
     await tester.binding.setSurfaceSize(const Size(320, 850));
     addTearDown(() => tester.binding.setSurfaceSize(null));

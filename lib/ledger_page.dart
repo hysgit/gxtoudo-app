@@ -18,6 +18,33 @@ class BillTile extends StatelessWidget {
       billCurrency(bill.data),
     );
     final date = '${text(bill.data['date'])}  ${billTypes[kind] ?? kind}';
+    final dateAndFlags = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(
+          child: Text(
+            date,
+            style: const TextStyle(
+              fontSize: 13,
+              fontFeatures: [FontFeature.tabularFigures()],
+            ),
+          ),
+        ),
+        const SizedBox(width: 4),
+        _BillExclusionSlot(
+          key: const ValueKey('bill-total-slot'),
+          visible: !billIncluded(bill.data),
+          color: const Color(0xffb2493a),
+          label: '未计入总支出或总收入',
+        ),
+        _BillExclusionSlot(
+          key: const ValueKey('bill-party-slot'),
+          visible: !billIncludedInPartyStats(bill.data),
+          color: const Color(0xff28754a),
+          label: '未计入分项统计',
+        ),
+      ],
+    );
     final money = Text(
       amount,
       style: TextStyle(
@@ -43,16 +70,11 @@ class BillTile extends StatelessWidget {
           amount.length > 18
               ? Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(date, style: const TextStyle(fontSize: 13)),
-                    money,
-                  ],
+                  children: [dateAndFlags, money],
                 )
               : Row(
                   children: [
-                    Expanded(
-                      child: Text(date, style: const TextStyle(fontSize: 13)),
-                    ),
+                    Expanded(child: dateAndFlags),
                     money,
                   ],
                 ),
@@ -68,6 +90,35 @@ class BillTile extends StatelessWidget {
       onTap: onTap,
     );
   }
+}
+
+class _BillExclusionSlot extends StatelessWidget {
+  const _BillExclusionSlot({
+    super.key,
+    required this.visible,
+    required this.color,
+    required this.label,
+  });
+
+  final bool visible;
+  final Color color;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: MediaQuery.textScalerOf(context).scale(17),
+    child: visible
+        ? Semantics(
+            label: label,
+            excludeSemantics: true,
+            child: Text(
+              '☑',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 13, color: color),
+            ),
+          )
+        : null,
+  );
 }
 
 class LedgerPage extends StatefulWidget {

@@ -16,7 +16,7 @@ const ctx={
   account:null, state:null, page:initialPage, team:0, selected:null, query:'',
   calendarDate:new Date(), calendarView:'month', day:null, filter:defaultFilter(initialPage), month:today().slice(0,7), billFilter:null, archive:false,
   noteSection:'quick', noteDraft:'', recording:false, canDictate:!!SpeechRecognition,
-  noteFolder:'', folderDraft:null, noteEdit:null,
+  noteFolder:'', folderDraft:null, noteEdit:null, collapsedNoteFolders:new Set(),
   ai:{ conversations:[], turns:[], thread:'', draft:'', file:null },
   status:'正在同步', syncFailed:false,
 };
@@ -56,7 +56,7 @@ function render({ bottom=false }={}) {
     ? [active.selectionStart,active.selectionEnd] : null;
   const navKey=active instanceof HTMLElement && app.contains(active) && active.matches(':focus-visible')
     ? { ...active.dataset } : null;
-  const scrollIds=['note-messages','ai-turns','year-month-grid','quadrant-1','quadrant-2','quadrant-3','quadrant-4'];
+  const scrollIds=['note-messages','notes-list','ai-turns','year-month-grid','quadrant-1','quadrant-2','quadrant-3','quadrant-4'];
   const previousScroll=Object.fromEntries(scrollIds.map(id=>[id,document.getElementById(id)?.scrollTop||0]));
   const collapsed=[...app.querySelectorAll('details:not([open]) > summary')].map(node=>node.textContent);
   app.innerHTML=ctx.account&&ctx.state?shell(ctx):signin(login);
@@ -67,7 +67,7 @@ function render({ bottom=false }={}) {
   if (ctx.account&&ctx.state) {
     for (const id of scrollIds) {
       const node=document.getElementById(id);
-      if (node) node.scrollTop=bottom?node.scrollHeight:previousScroll[id];
+      if (node) node.scrollTop=bottom&&(id==='note-messages'||id==='ai-turns')?node.scrollHeight:previousScroll[id];
     }
     if (search||field||draftField) {
       const next=draftField?document.getElementById(draftField[0])?.elements.namedItem(draftField[1]):
@@ -171,6 +171,7 @@ async function forgetAccount() {
   for (const value of media.values()) if (value.url) URL.revokeObjectURL(value.url);
   media.clear();
   noteEdits.clear();
+  ctx.collapsedNoteFolders.clear();
   if (mediaDialog.open) mediaDialog.close();
   if (dialog.open) dialog.close();
   Object.assign(ctx,{ account:null, state:null, selected:null, query:'', noteDraft:'', noteFolder:'', folderDraft:null, noteEdit:null, recording:false,
@@ -411,7 +412,10 @@ async function saveNoteEdit(draft) {
     addFiles(state,staged,account,saved,T.entry);
   },staged);
   noteEdits.delete(draft.key);
-  if (ctx.noteEdit===draft) Object.assign(ctx,{noteEdit:null,selected:uid,noteFolder:parent});
+  if (ctx.noteEdit===draft) {
+    Object.assign(ctx,{noteEdit:null,selected:uid,noteFolder:parent});
+    revealNoteFolder(parent);
+  }
   render();
   notify('便签已保存');
 }
@@ -423,11 +427,23 @@ function createFolderEditor() {
   document.querySelector('#folder-form [name=name]')?.focus();
 }
 
+function revealNoteFolder(uid) {
+  if (!uid||ctx.collapsedNoteFolders.size===0) return;
+  const folders=new Map(noteFolders(ctx.state,ctx.team,ctx.noteSection).map(folder=>[folder.uid,folder.parent]));
+  while (uid && folders.has(uid)) {
+    ctx.collapsedNoteFolders.delete(uid);
+    uid=folders.get(uid);
+  }
+}
+
 async function submitFolder(draft) {
   const account=ctx.account.id, {team,noteSection:section}=ctx;
   const uid=id(T.note);
   await edit(state=>saveNoteFolder(state,account,team,section,uid,draft.name,draft.parent));
-  if (ctx.folderDraft===draft) Object.assign(ctx,{folderDraft:null,noteFolder:uid});
+  if (ctx.folderDraft===draft) {
+    Object.assign(ctx,{folderDraft:null,noteFolder:uid});
+    revealNoteFolder(uid);
+  }
   render();
 }
 
@@ -872,11 +888,20 @@ async function interact(button) {
       render();break;
     case 'note-folder':
       ctx.noteFolder=data.id;render();break;
+    case 'folder-toggle':
+      if (!ctx.collapsedNoteFolders.delete(data.id)) ctx.collapsedNoteFolders.add(data.id);
+      render();break;
     case 'folder-new':createFolderEditor();break;
     case 'folder-cancel':ctx.folderDraft=null;render();break;
     case 'note-edit-cancel':
       if (ctx.noteEdit) noteEdits.delete(ctx.noteEdit.key);
       ctx.noteEdit=null;render();break;
+    case 'note-editor-mode':
+      if (ctx.noteEdit) {
+        ctx.noteEdit.preview=data.mode==='preview';
+        render();
+      }
+      break;
     case 'note-files-clear':
       if (ctx.noteEdit) ctx.noteEdit.files=[];
       render();break;
