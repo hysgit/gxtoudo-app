@@ -863,20 +863,24 @@ class _WorkbenchState extends State<Workbench> with WidgetsBindingObserver {
       key: ValueKey((controller.team, notesSection)),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
       children: [
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: SegmentedButton<NoteSection>(
-            style: const ButtonStyle(visualDensity: VisualDensity.compact),
-            segments: [
-              for (final section in NoteSection.values)
-                ButtonSegment(value: section, label: Text(section.label)),
-            ],
-            selected: {notesSection},
-            onSelectionChanged: (value) => setState(() {
-              notesSection = value.single;
-              noteFolder = '';
-            }),
+        SegmentedButton<NoteSection>(
+          expandedInsets: EdgeInsets.zero,
+          showSelectedIcon: false,
+          style: const ButtonStyle(
+            padding: WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: 8)),
           ),
+          segments: [
+            for (final section in NoteSection.values)
+              ButtonSegment(
+                value: section,
+                label: Text(section.label, textAlign: TextAlign.center),
+              ),
+          ],
+          selected: {notesSection},
+          onSelectionChanged: (value) => setState(() {
+            notesSection = value.single;
+            noteFolder = '';
+          }),
         ),
         const SizedBox(height: 4),
         if (notesSection.customFolders)

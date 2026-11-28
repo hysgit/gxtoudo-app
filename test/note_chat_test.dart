@@ -153,6 +153,40 @@ void main() {
     ]);
   });
 
+  for (final scale in [1.0, 2.0]) {
+    testWidgets('320 像素宽度和 $scale 倍字体下五个便签标签均可点击', (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(320, 700);
+      tester.platformDispatcher.textScaleFactorTestValue = scale;
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+
+      final controller = TodoController(MemoryRepository());
+      addTearDown(controller.dispose);
+      await controller.initialize();
+      await tester.pumpWidget(TodoApp(controller));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(NavigationDestination).last);
+      await tester.pumpAndSettle();
+
+      final tabs = find.byType(SegmentedButton<NoteSection>);
+      for (final section in NoteSection.values.reversed) {
+        final label = find.descendant(
+          of: tabs,
+          matching: find.text(section.label),
+        );
+        expect(label.hitTestable(), findsOneWidget);
+        await tester.tap(label);
+        await tester.pumpAndSettle();
+        expect(tester.widget<SegmentedButton<NoteSection>>(tabs).selected, {
+          section,
+        });
+        expect(tester.takeException(), isNull);
+      }
+    });
+  }
+
   testWidgets('手机日记手建三层目录并保存自定义标题，信息单独显示', (tester) async {
     final store = MemoryRepository();
     final controller = TodoController(store);
