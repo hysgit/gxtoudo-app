@@ -12,6 +12,91 @@ import 'package:material_ui/material_ui.dart';
 import 'memory_repository.dart';
 
 void main() {
+  testWidgets('账单自动发现信用卡，首次设置账单日后分币种显示并保存在本机', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(320, 850));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final repository = MemoryRepository();
+    final controller = TodoController(repository);
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    await controller.mutate((data, who) {
+      for (final (uid, date, currency, amount) in [
+        ('上一期人民币', '2026-10-11', 'CNY', '8.00'),
+        ('本期消费', '2026-10-12', 'CNY', '12.30'),
+        ('本期订阅', '2026-11-11', 'USD', '21.79'),
+        ('下一期美元', '2026-11-12', 'USD', '70.00'),
+      ]) {
+        saveBill(
+          data,
+          who,
+          -1,
+          uid,
+          {
+            'name': uid,
+            'date': date,
+            'currency': currency,
+            'amount': amount,
+            'type': 'expense',
+            'channel': '支付宝',
+            'party': '建设信用卡',
+          },
+          [],
+          {},
+        );
+      }
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: todoTheme(),
+        home: Scaffold(
+          body: LedgerPage(
+            controller,
+            -1,
+            now: DateTime(2026, 11, 28),
+            onEdit: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('账单'));
+    await tester.pumpAndSettle();
+    expect(find.text('建设信用卡'), findsOneWidget);
+    expect(find.text('设置账单日'), findsOneWidget);
+    expect(find.text('USD 21.79'), findsNothing);
+    await tester.tap(find.text('设置账单日'));
+    await tester.pumpAndSettle();
+    expect(
+      find.widgetWithText(FilledButton, '保存').evaluate().single.widget,
+      isA<FilledButton>().having((button) => button.onPressed, 'enabled', null),
+    );
+    await tester.tap(find.byType(DropdownButtonFormField<int>));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('12 日').last,
+      160,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(find.text('12 日').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+    expect(find.text('账单日 12 日'), findsOneWidget);
+    expect(find.text('2026-10-12 至 2026-11-11'), findsOneWidget);
+    expect(find.text('12.30 元'), findsOneWidget);
+    expect(find.text('USD 21.79'), findsOneWidget);
+    await tester.tap(find.byTooltip('下个账单月'));
+    await tester.pumpAndSettle();
+    expect(find.text('USD 70.00'), findsOneWidget);
+    await tester.tap(find.text('本月'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('账单'));
+    await tester.pumpAndSettle();
+    expect(find.text('账单日 12 日'), findsOneWidget);
+    expect(find.text('USD 21.79'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('新增途径立即保存并可在下一次创建和其他空间直接选择', (tester) async {
     final controller = TodoController(MemoryRepository());
     addTearDown(controller.dispose);

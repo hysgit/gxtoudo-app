@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import 'appearance.dart';
 import 'controller.dart';
+import 'credit_card_statement_view.dart';
 import 'domain.dart';
 import 'ledger.dart';
 
@@ -92,8 +93,10 @@ typedef _PartySelection = ({
   String party,
 });
 
+enum _LedgerSection { current, archived, statements }
+
 class _LedgerPageState extends State<LedgerPage> {
-  bool archive = false;
+  _LedgerSection section = _LedgerSection.current;
   String? selectedMonth;
   _PartySelection? selectedParty;
 
@@ -235,6 +238,8 @@ class _LedgerPageState extends State<LedgerPage> {
     listenable: widget.controller,
     builder: (context, _) {
       final now = widget.now ?? DateTime.now();
+      final archive = section == _LedgerSection.archived;
+      final statements = section == _LedgerSection.statements;
       final current = billMonth(now);
       final months = archivedBillMonths(
         widget.controller.data,
@@ -245,7 +250,11 @@ class _LedgerPageState extends State<LedgerPage> {
           .map((month) => month.substring(0, 4))
           .toSet()
           .toList();
-      final month = archive ? selectedMonth : current;
+      final month = statements
+          ? null
+          : archive
+          ? selectedMonth
+          : current;
       final rows = month == null
           ? <Item>[]
           : monthlyBills(widget.controller.data, widget.team, month);
@@ -264,20 +273,32 @@ class _LedgerPageState extends State<LedgerPage> {
       return PageContent(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 80),
         children: [
-          SegmentedButton<bool>(
+          SegmentedButton<_LedgerSection>(
             style: const ButtonStyle(visualDensity: VisualDensity.compact),
             segments: const [
-              ButtonSegment(value: false, label: Text('本月')),
-              ButtonSegment(value: true, label: Text('已归档')),
+              ButtonSegment(value: _LedgerSection.current, label: Text('本月')),
+              ButtonSegment(value: _LedgerSection.archived, label: Text('已归档')),
+              ButtonSegment(
+                value: _LedgerSection.statements,
+                label: Text('账单'),
+              ),
             ],
-            selected: {archive},
+            selected: {section},
             onSelectionChanged: (values) => setState(() {
-              archive = values.single;
+              section = values.single;
               selectedMonth = null;
               selectedParty = null;
             }),
           ),
-          if (month != null) ...[
+          if (statements)
+            CreditCardStatementView(
+              key: ValueKey((widget.controller.identity.scope, widget.team)),
+              repository: widget.controller.repository,
+              scope: widget.controller.identity.scope,
+              now: now,
+              bills: widget.controller.data.list(widget.team, Tables.bill),
+            )
+          else if (month != null) ...[
             if (archive)
               Align(
                 alignment: Alignment.centerLeft,

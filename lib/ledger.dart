@@ -91,10 +91,11 @@ class ExactAmount {
   @override
   String toString() {
     final target = math.max(2, scale);
-    final digits = (units * BigInt.from(10).pow(target - scale))
+    final digits = (units.abs() * BigInt.from(10).pow(target - scale))
         .toString()
         .padLeft(target + 1, '0');
-    return '${digits.substring(0, digits.length - target)}.${digits.substring(digits.length - target)}';
+    final sign = units.isNegative ? '-' : '';
+    return '$sign${digits.substring(0, digits.length - target)}.${digits.substring(digits.length - target)}';
   }
 }
 

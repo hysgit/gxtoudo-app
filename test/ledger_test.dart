@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gxtodo/credit_card_statement.dart';
 import 'package:gxtodo/domain.dart';
 import 'package:gxtodo/ledger.dart';
 import 'package:gxtodo/record_versions.dart';
@@ -21,6 +22,69 @@ Fields bill(
 };
 
 void main() {
+  test('信用卡以账单日为界分币种精确计算，退款冲减且还款不计入', () {
+    final data = WorkspaceData();
+    const who = Identity.guest;
+    void add(
+      String uid,
+      String date,
+      String amount, {
+      String party = '建行信用卡',
+      String channel = '支付宝',
+      String type = 'expense',
+      String currency = 'CNY',
+    }) {
+      data.save(who, -1, Tables.bill, uid, {
+        ...bill(uid, date, type, amount, party: party),
+        'currency': currency,
+        'channel': channel,
+        'include_in_totals': 0,
+        billPartyStatsField: 0,
+      });
+    }
+
+    add('上期', '2026-10-11', '100');
+    add('起始日', '2026-10-12', '0.1');
+    add('结束日', '2026-11-11', '0.2');
+    add('下期', '2026-11-12', '800');
+    add('已删除的本期账单', '2026-11-10', '900');
+    add('美元订阅', '2026-10-21', '21.79', currency: 'USD');
+    add('美元退款', '2026-11-10', '1.01', type: 'income', currency: 'USD');
+    add('建行信用卡还款', '2026-11-09', '999');
+    add('内转', '2026-11-09', '999', type: 'transfer');
+    add('工行卡消费', '2026-11-09', '999', party: '工行卡', channel: '建行信用卡');
+    add('他卡退款', '2026-11-09', '1', party: '农行信用卡', type: 'income');
+    add('仅有途径', '2026-11-09', '7', channel: '招行信用卡', party: '未注明');
+    final removed = data.get(-1, Tables.bill, '已删除的本期账单');
+    data.remove(removed);
+
+    final cards = creditCardTransactions(data.list(-1, Tables.bill));
+    expect(cards.keys, unorderedEquals(['建行信用卡', '农行信用卡', '招行信用卡']));
+    final period = creditCardPeriod(DateTime(2026, 11), 12);
+    expect(billDate(period.start), '2026-10-12');
+    expect(billDate(period.endExclusive), '2026-11-12');
+    final total = creditCardTotals(cards['建行信用卡']!, period);
+    expect(total['CNY'].toString(), '0.30');
+    expect(total['USD'].toString(), '20.78');
+    expect(
+      creditCardTotals(cards['农行信用卡']!, period)['CNY'].toString(),
+      '-1.00',
+    );
+    expect(creditCardTotals(cards['招行信用卡']!, period)['CNY'].toString(), '7.00');
+  });
+
+  test('账单周期跨年且小月账单日按月末接续', () {
+    final january = creditCardPeriod(DateTime(2027, 1), 12);
+    expect(billDate(january.start), '2026-12-12');
+    expect(billDate(january.endExclusive), '2027-01-12');
+    final february = creditCardPeriod(DateTime(2028, 2), 31);
+    final march = creditCardPeriod(DateTime(2028, 3), 31);
+    expect(billDate(february.start), '2028-01-31');
+    expect(billDate(february.endExclusive), '2028-02-29');
+    expect(march.start, february.endExclusive);
+    expect(billDate(march.endExclusive), '2028-03-31');
+  });
+
   test('金额、累计、超出浮点安全范围及18位小数精确保留', () {
     expect(
       (ExactAmount.parse('0.1') + ExactAmount.parse('0.2')).toString(),
