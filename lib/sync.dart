@@ -162,6 +162,7 @@ Future<int> synchronize(
         },
         'record_versions': 1,
         'bill_currency': 1,
+        'card_statement_options': 1,
         '_data': sent.map((item) => item.toUpload()).toList(),
       },
     );

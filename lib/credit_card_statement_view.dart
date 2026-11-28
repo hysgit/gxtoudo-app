@@ -15,12 +15,14 @@ class CreditCardStatementView extends StatefulWidget {
     required this.scope,
     required this.now,
     required this.bills,
+    required this.onEdit,
   });
 
   final LocalRepository repository;
   final String scope;
   final DateTime now;
   final Iterable<Item> bills;
+  final ValueChanged<Item> onEdit;
 
   @override
   State<CreditCardStatementView> createState() =>
@@ -95,7 +97,115 @@ class _CreditCardStatementViewState extends State<CreditCardStatementView> {
     setState(() => month = DateTime(month.year, month.month + delta));
   }
 
-  Widget _card(String card, List<Item> transactions) => FutureBuilder<int?>(
+  Future<void> _showDetails(
+    String card,
+    String currency,
+    CardDirection direction,
+    CardStatementAmounts amounts,
+  ) async {
+    final rows = amounts.forDirection(direction).toList()
+      ..sort(
+        (a, b) =>
+            text(b.bill.data['date']).compareTo(text(a.bill.data['date'])),
+      );
+    final selected = await showModalBottomSheet<Item>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => FractionallySizedBox(
+        heightFactor: 0.8,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ListTile(
+              title: Text('$card · ${direction.label}明细'),
+              subtitle: Text(
+                billAmountLabel(amounts.total(direction).toString(), currency),
+              ),
+            ),
+            Expanded(
+              child: rows.isEmpty
+                  ? const Center(child: Text('本期没有明细'))
+                  : ListView.builder(
+                      padding: EdgeInsets.only(
+                        bottom: MediaQuery.paddingOf(context).bottom,
+                      ),
+                      itemCount: rows.length,
+                      itemBuilder: (context, index) {
+                        final entry = rows[index];
+                        final bill = entry.bill;
+                        return ListTile(
+                          dense: true,
+                          title: Text(bill.name),
+                          subtitle: Text(
+                            [
+                              text(bill.data['date']),
+                              billAmountLabel(
+                                ExactAmount.parse(text(bill.data['amount']))
+                                    .toString(),
+                                currency,
+                              ),
+                              if (!entry.included) '未计入',
+                            ].join(' · '),
+                          ),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => Navigator.pop(context, bill),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (mounted && selected != null) widget.onEdit(selected);
+  }
+
+  Widget _currency(String card, String currency, CardStatementAmounts amounts) {
+    final (:incoming, :outgoing, :net) = amounts.totals;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 8),
+        Text(
+          billCurrencies[currency] ?? currency,
+          style: const TextStyle(fontSize: 13, color: muted),
+        ),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final (direction, total) in [
+              (CardDirection.outgoing, outgoing),
+              (CardDirection.incoming, incoming),
+            ])
+              Expanded(
+                child: TextButton(
+                  style: TextButton.styleFrom(
+                    alignment: Alignment.centerLeft,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                  ),
+                  onPressed: () =>
+                      _showDetails(card, currency, direction, amounts),
+                  child: _AmountLabel(direction.label, currency, total),
+                ),
+              ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: _AmountLabel('净额', currency, net),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _card(
+    String card,
+    List<CardEntry> transactions,
+  ) => FutureBuilder<int?>(
     key: ValueKey(card),
     future: _days.putIfAbsent(card, () => _dayOf(card)),
     builder: (context, snapshot) {
@@ -103,7 +213,7 @@ class _CreditCardStatementViewState extends State<CreditCardStatementView> {
       final period = day == null ? null : creditCardPeriod(month, day);
       final totals = period == null
           ? null
-          : creditCardTotals(transactions, period);
+          : creditCardAmounts(transactions, period);
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
         child: DecoratedBox(
@@ -154,22 +264,8 @@ class _CreditCardStatementViewState extends State<CreditCardStatementView> {
                     '${billDate(period.endExclusive.subtract(const Duration(days: 1)))}',
                     style: const TextStyle(fontSize: 12, color: muted),
                   ),
-                  const SizedBox(height: 10),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      for (final currency in ['CNY', 'USD'])
-                        Expanded(
-                          child: _AmountLabel(currency, totals[currency]!),
-                        ),
-                    ],
-                  ),
                   for (final entry in totals.entries)
-                    if (entry.key != 'CNY' && entry.key != 'USD')
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: _AmountLabel(entry.key, entry.value),
-                      ),
+                    _currency(card, entry.key, entry.value),
                 ],
               ],
             ),
@@ -220,8 +316,9 @@ class _CreditCardStatementViewState extends State<CreditCardStatementView> {
 }
 
 class _AmountLabel extends StatelessWidget {
-  const _AmountLabel(this.currency, this.amount);
+  const _AmountLabel(this.label, this.currency, this.amount);
 
+  final String label;
   final String currency;
   final ExactAmount amount;
 
@@ -229,14 +326,11 @@ class _AmountLabel extends StatelessWidget {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
+      Text(label, style: const TextStyle(fontSize: 12, color: muted)),
       Text(
-        billCurrencies[currency] ?? currency,
-        style: const TextStyle(fontSize: 12, color: muted),
-      ),
-      SelectableText(
         billAmountLabel(amount.toString(), currency),
         style: const TextStyle(
-          fontSize: 16,
+          fontSize: 14,
           fontWeight: FontWeight.w600,
           fontFeatures: [FontFeature.tabularFigures()],
         ),

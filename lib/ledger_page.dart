@@ -348,6 +348,7 @@ class _LedgerPageState extends State<LedgerPage> {
               scope: widget.controller.identity.scope,
               now: now,
               bills: widget.controller.data.list(widget.team, Tables.bill),
+              onEdit: widget.onEdit,
             )
           else if (month != null) ...[
             if (archive)

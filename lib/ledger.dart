@@ -29,6 +29,7 @@ String billAmountLabel(String amount, String currency) =>
 
 const _legacyTotalsField = 'legacy_include_in_totals';
 const billPartyStatsField = 'include_in_party_stats';
+const billCardStatementField = 'include_in_card_statement';
 
 bool billIncluded(Fields bill) =>
     integer(bill[_legacyTotalsField], integer(bill['include_in_totals'], 1)) !=
@@ -253,6 +254,7 @@ const billVersionFields = [
   'longitude',
   'include_in_totals',
   billPartyStatsField,
+  billCardStatementField,
 ];
 
 void captureBill(
@@ -297,11 +299,13 @@ void revertBill(WorkspaceData data, Identity who, Item row, Fields snapshot) {
   captureBill(data, who, current, onlyIfMissing: true);
   data.save(who, row.team, Tables.bill, row.uid, {
     for (final key in billVersionFields)
-      key: switch (key) {
-        'currency' => billCurrency(snapshot),
-        billPartyStatsField => billIncludedInPartyStats(snapshot) ? 1 : 0,
-        _ => snapshot[key],
-      },
+      if (key != billCardStatementField || snapshot.containsKey(key))
+        key: switch (key) {
+          'currency' => billCurrency(snapshot),
+          billPartyStatsField => billIncludedInPartyStats(snapshot) ? 1 : 0,
+          billCardStatementField => text(snapshot[key]),
+          _ => snapshot[key],
+        },
     if (current.data.containsKey(_legacyTotalsField)) _legacyTotalsField: '',
   });
   restoreAttachmentIds(

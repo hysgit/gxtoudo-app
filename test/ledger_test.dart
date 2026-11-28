@@ -22,7 +22,7 @@ Fields bill(
 };
 
 void main() {
-  test('信用卡以账单日为界分币种精确计算，退款冲减且还款不计入', () {
+  test('信用卡账单按周期和币种核算，允许单笔排除和选择要冲减的还款', () {
     final data = WorkspaceData();
     const who = Identity.guest;
     void add(
@@ -33,13 +33,16 @@ void main() {
       String channel = '支付宝',
       String type = 'expense',
       String currency = 'CNY',
+      int? statement,
+      String? name,
     }) {
       data.save(who, -1, Tables.bill, uid, {
-        ...bill(uid, date, type, amount, party: party),
+        ...bill(name ?? uid, date, type, amount, party: party),
         'currency': currency,
         'channel': channel,
         'include_in_totals': 0,
         billPartyStatsField: 0,
+        billCardStatementField: ?statement,
       });
     }
 
@@ -50,7 +53,26 @@ void main() {
     add('已删除的本期账单', '2026-11-10', '900');
     add('美元订阅', '2026-10-21', '21.79', currency: 'USD');
     add('美元退款', '2026-11-10', '1.01', type: 'income', currency: 'USD');
-    add('建行信用卡还款', '2026-11-09', '999');
+    add('上期还款', '2026-11-09', '999', name: '建行信用卡还款', party: '工行卡');
+    add(
+      '本期还款',
+      '2026-11-09',
+      '0.02',
+      name: '还建设银行信用卡',
+      party: '工行卡',
+      statement: 1,
+    );
+    add('排除消费', '2026-11-09', '50', statement: 0);
+    add('排除入账', '2026-11-09', '70', type: 'income', statement: 0);
+    add(
+      '同币种还款',
+      '2026-11-09',
+      '1.78',
+      name: '建行信用卡美元还款',
+      party: '工行卡',
+      currency: 'USD',
+      statement: 1,
+    );
     add('内转', '2026-11-09', '999', type: 'transfer');
     add('工行卡消费', '2026-11-09', '999', party: '工行卡', channel: '建行信用卡');
     add('他卡退款', '2026-11-09', '1', party: '农行信用卡', type: 'income');
@@ -63,14 +85,27 @@ void main() {
     final period = creditCardPeriod(DateTime(2026, 11), 12);
     expect(billDate(period.start), '2026-10-12');
     expect(billDate(period.endExclusive), '2026-11-12');
-    final total = creditCardTotals(cards['建行信用卡']!, period);
-    expect(total['CNY'].toString(), '0.30');
-    expect(total['USD'].toString(), '20.78');
+    final amounts = creditCardAmounts(cards['建行信用卡']!, period);
+    final cny = amounts['CNY']!.totals;
+    expect(cny.outgoing.toString(), '0.30');
+    expect(cny.incoming.toString(), '0.02');
+    expect(cny.net.toString(), '0.28');
+    expect(amounts['USD']!.totals.net.toString(), '19.00');
     expect(
-      creditCardTotals(cards['农行信用卡']!, period)['CNY'].toString(),
+      amounts['CNY']!
+          .forDirection(CardDirection.incoming)
+          .where((entry) => !entry.included)
+          .map((entry) => entry.bill.uid),
+      unorderedEquals(['上期还款', '排除入账']),
+    );
+    expect(
+      creditCardAmounts(cards['农行信用卡']!, period)['CNY']!.totals.net.toString(),
       '-1.00',
     );
-    expect(creditCardTotals(cards['招行信用卡']!, period)['CNY'].toString(), '7.00');
+    expect(
+      creditCardAmounts(cards['招行信用卡']!, period)['CNY']!.totals.net.toString(),
+      '7.00',
+    );
   });
 
   test('账单周期跨年且小月账单日按月末接续', () {

@@ -6,6 +6,7 @@ import 'appearance.dart';
 import 'api.dart';
 import 'bill_location.dart';
 import 'controller.dart';
+import 'credit_card_statement.dart';
 import 'domain.dart';
 import 'ledger.dart';
 import 'media_files.dart';
@@ -63,6 +64,17 @@ class _BillEditorState extends State<BillEditor> {
   late bool includedInPartyStats = billIncludedInPartyStats(
     widget.bill?.data ?? {},
   );
+  late int? cardStatementChoice = int.tryParse(
+    text(widget.bill?.data[billCardStatementField]),
+  );
+
+  CardMovement? get cardMovement => creditCardMovement({
+    'type': type,
+    'channel': channel,
+    'party': party,
+    'name': subject.text,
+    billCardStatementField: ?cardStatementChoice,
+  });
   final draft = AttachmentDraft();
   bool busy = false,
       attaching = false,
@@ -171,6 +183,8 @@ class _BillEditorState extends State<BillEditor> {
         'currency': currency,
         'include_in_totals': included ? 1 : 0,
         billPartyStatsField: includedInPartyStats ? 1 : 0,
+        if (cardMovement != null && cardStatementChoice != null)
+          billCardStatementField: cardStatementChoice!,
         'channel': channel,
         'party': party,
         'remark': remark.text,
@@ -516,6 +530,27 @@ class _BillEditorState extends State<BillEditor> {
               decoration: const InputDecoration(labelText: '事项'),
               validator: (value) =>
                   value?.trim().isNotEmpty == true ? null : '请输入事项',
+            ),
+            ValueListenableBuilder(
+              valueListenable: subject,
+              builder: (context, _, _) {
+                final movement = cardMovement;
+                if (movement == null) return const SizedBox.shrink();
+                return CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('计入信用卡账单'),
+                  subtitle: Text(
+                    '${movement.card} · ${movement.direction.label}',
+                  ),
+                  value: movement.included,
+                  onChanged: busy
+                      ? null
+                      : (value) => setState(() {
+                          cardStatementChoice = value == true ? 1 : 0;
+                          dirty = true;
+                        }),
+                );
+              },
             ),
             TextFormField(
               controller: location,

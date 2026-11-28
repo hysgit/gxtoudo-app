@@ -80,7 +80,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('账单自动发现信用卡，首次设置账单日后分币种显示并保存在本机', (tester) async {
+  testWidgets('信用卡账单按币种显示出入净额，点击明细可修改本期计入', (tester) async {
     await tester.binding.setSurfaceSize(const Size(320, 850));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final repository = MemoryRepository();
@@ -112,16 +112,38 @@ void main() {
           {},
         );
       }
+      saveBill(
+        data,
+        who,
+        -1,
+        '上一期还款',
+        {
+          'name': '建设信用卡还款（上期）',
+          'date': '2026-11-01',
+          'type': 'expense',
+          'amount': '2.30',
+          'channel': '工行卡',
+          'party': '工行卡',
+        },
+        [],
+        {},
+      );
     });
+    final navigator = GlobalKey<NavigatorState>();
     await tester.pumpWidget(
       MaterialApp(
+        navigatorKey: navigator,
         theme: todoTheme(),
         home: Scaffold(
           body: LedgerPage(
             controller,
             -1,
             now: DateTime(2026, 11, 28),
-            onEdit: (_) {},
+            onEdit: (bill) => navigator.currentState!.push(
+              MaterialPageRoute<void>(
+                builder: (_) => BillEditor(controller, -1, bill: bill),
+              ),
+            ),
           ),
         ),
       ),
@@ -151,17 +173,49 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('账单日 12 日'), findsOneWidget);
     expect(find.text('2026-10-12 至 2026-11-11'), findsOneWidget);
-    expect(find.text('12.30 元'), findsOneWidget);
-    expect(find.text('USD 21.79'), findsOneWidget);
+    final expense = find.widgetWithText(TextButton, '12.30 元');
+    expect(expense, findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'USD 21.79'), findsOneWidget);
+    await tester.tap(expense);
+    await tester.pumpAndSettle();
+    expect(find.text('建设信用卡 · 出账明细'), findsOneWidget);
+    expect(find.text('本期消费'), findsOneWidget);
+    expect(find.text('本期订阅'), findsNothing);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    final income = find.ancestor(
+      of: find.text('0.00 元'),
+      matching: find.byType(TextButton),
+    );
+    expect(income, findsOneWidget);
+    await tester.tap(income);
+    await tester.pumpAndSettle();
+    expect(find.text('建设信用卡 · 入账明细'), findsOneWidget);
+    expect(find.textContaining('未计入'), findsOneWidget);
+    await tester.tap(find.text('建设信用卡还款（上期）'));
+    await tester.pumpAndSettle();
+    final optIn = find.widgetWithText(CheckboxListTile, '计入信用卡账单');
+    await tester.ensureVisible(optIn);
+    expect(tester.widget<CheckboxListTile>(optIn).value, isFalse);
+    await tester.tap(optIn);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('保存').first);
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(TextButton, '2.30 元'), findsOneWidget);
+    expect(find.text('10.00 元'), findsOneWidget);
+    final saved = controller.data.get(-1, Tables.bill, '上一期还款')!;
+    expect(saved.data[billCardStatementField], 1);
+    expect(billIncluded(saved.data), isTrue);
     await tester.tap(find.byTooltip('下个账单月'));
     await tester.pumpAndSettle();
-    expect(find.text('USD 70.00'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'USD 70.00'), findsOneWidget);
     await tester.tap(find.text('本月'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('账单'));
     await tester.pumpAndSettle();
     expect(find.text('账单日 12 日'), findsOneWidget);
-    expect(find.text('USD 21.79'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'USD 21.79'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
